@@ -1,4 +1,3 @@
-import time
 import uasyncio as asyncio
 from machine import Pin, I2C
 from lib.IS31FL3729 import IS31FL3729
@@ -14,30 +13,32 @@ def get_char_pattern(char):
     else:
         return char_patterns_lower.get(char, [[0]*6]*7)
 
-async def scroll_text(name, delay=0.1):
-    display.clear_matrix()
-    buffer = [[0] * (6 * len(name)) for _ in range(7)]
-    
-    # Create a buffer with all characters side by side
-    for i, char in enumerate(name):
-        pattern = get_char_pattern(char)
-        for x in range(7):
-            for y in range(6):
-                buffer[x][i*6 + y] = pattern[x][y]
+async def scroll_text(name, delay=0.1, led_matrix=None):
+    while True: 
+        display.clear_matrix()
+        buffer = [[0] * (6 * len(name)) for _ in range(7)]
+        
+        # Create a buffer with all characters side by side
+        for i, char in enumerate(name):
+            pattern = get_char_pattern(char)
+            for x in range(7):
+                for y in range(6):
+                    buffer[x][i*6 + y] = pattern[x][y]
 
-    # Scroll the buffer
-    for offset in range(len(buffer[0]) - 6 + 1):
-        led_list = []
-        for x in range(7):
-            for y in range(6):
-                brightness = 255 if buffer[x][y + offset] == 1 else 0
-                led_list.append((x, y, brightness))
-        display.set_led_list(led_list)
-        await asyncio.sleep(delay)
+        # Scroll the buffer
+        for offset in range(len(buffer[0]) - 6 + 1):
+            led_list = []
+            for x in range(7):
+                for y in range(6):
+                    brightness = 255 if buffer[x][y + offset] == 1 else 0
+                    led_list.append((x, y, brightness))
+            display.set_led_list(led_list)
+            await asyncio.sleep(delay)
+        await asyncio.sleep_ms(250)
 
-async def main():
+async def scroll_name():
     while True:
-        await scroll_text("    DONT PANIC    ", delay=0.05)
+        await scroll_text("    AASK QUESTIONS    ", delay=0.05)
 
 # Run the main function
-asyncio.run(main())
+asyncio.run(scroll_name())
