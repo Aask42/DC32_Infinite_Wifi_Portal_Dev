@@ -1,13 +1,11 @@
 import math
 import time
 from machine import Pin, I2C
-import random
-from lib.IS31FL3729 import IS31FL3729
-from infinity_mirror_font import number_patterns, char_patterns, char_patterns_lower
+import uasyncio
+from matrix_functions.matrix_setup import set_up_led_matrix
+from matrix_functions.infinity_mirror_font import number_patterns, char_patterns, char_patterns_lower, char_patterns_lower, punctuation_patterns
 
-# Initialize the I2C bus and IS31FL3729 driver
-i2c = I2C(0, scl=Pin(22), sda=Pin(21))
-display = IS31FL3729(i2c)
+display = set_up_led_matrix()
 
 # Function to display a pattern on the LED matrix with fade-in effect
 def display_pattern_with_fade(pattern):
@@ -25,8 +23,15 @@ def display_pattern_with_fade(pattern):
         time.sleep(delay)
 
 # Test program to cycle through characters and numbers with fade-in effect
-def test_display():
+def test_fonts():
     while True:
+        # Display the punctuation characters
+        for punct in punctuation_patterns:
+            pattern = punctuation_patterns[punct]
+            print(f"Displaying punctuation: {punct}")
+            display.clear_matrix()
+            display_pattern_with_fade(pattern)
+            time.sleep(1)
         # Display characters in alphabetical order
         for char in sorted(char_patterns.keys()):
             pattern = char_patterns[char]
@@ -52,4 +57,5 @@ def test_display():
             time.sleep(1)
 
 # Run the test program
-test_display()
+test_fonts()
+
