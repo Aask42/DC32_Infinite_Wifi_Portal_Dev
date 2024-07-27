@@ -1,9 +1,7 @@
-import math
-import time
 import machine
 import random
-from matrix_functions.infinity_mirror_font import number_patterns
 from matrix_functions.matrix_setup import set_up_led_matrix
+from matrix_functions.matrix_functions import display_number, scroll_text
 import uasyncio
 
 
@@ -61,23 +59,8 @@ def display_new_grid(led_matrix = None):
             led_list_x_y.append((x, y, brightness if grid[x][y] == 1 else 0))
     led_matrix.set_led_list(led_list_x_y)
     
-
-async def display_number(number, fade_time=0.5, steps=15, led_matrix=None):
-    if led_matrix is None:
-        print("No valid matrix to display NUMBER")
-        assert ValueError
-        
-    pattern = number_patterns[number]
-    for step in range(steps + 1):
-        brightness = int((math.sin(math.pi * step / steps) ** 2) * 100)
-        led_list_x_y = []
-        for x in range(rows):
-            for y in range(cols):
-                led_list_x_y.append((x, y, brightness if pattern[x][y] == 1 else 0))
-        led_matrix.set_led_list(led_list_x_y)
-        await uasyncio.sleep(fade_time / steps)
-
 async def countdown(count = 5, led_matrix = None):
+    await uasyncio.create_task(scroll_text("DC32 INFINITE WIFI PORTAL BADGE"))
     for number in range(count, -1, -1):
         await uasyncio.create_task(display_number(number, led_matrix=led_matrix))
         await uasyncio.sleep(0.5)  # Add a brief pause between numbers
