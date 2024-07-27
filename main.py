@@ -14,7 +14,7 @@ from CONFIG.OTA_CONFIG import OTA_HOST, PROJECT_NAME, FILENAMES
 
 from lib.updates import update_file_replace
 from lib.helper import hsv_to_rgb
-from machine import Pin, reset, UART
+from machine import Pin, reset
 import uasyncio
 import utime
 import ntptime
@@ -24,8 +24,19 @@ import neopixel
 import machine
 import espnow
 
-# Imports specific to our badge
-from matrix_functions.conways_game import game_of_life
+from matrix_functions.matrix_functions import display_number, scroll_text
+
+conways_game = True
+try:
+    from examples.conways_game import run_game_of_life
+except:
+    conways_game = False
+    print("Couldn't find Conway's Game of Life :/")
+
+# Set up our LED matrix
+from matrix_functions.matrix_setup import set_up_led_matrix
+
+led_matrix = set_up_led_matrix()
 
 ## Turn on power to the LED strip
 WS_PWR_PIN = 18
@@ -145,7 +156,7 @@ async def set_time():
             print("Local time after synchronization: %s" % str(get_time()))
         except Exception as e:
             print("Error syncing time:", e)
-        await uasyncio.sleep(3600)
+        await uasyncio.sleep(60)
 
 # These flags keep track of ticking
 #TODO: Move to a better place
@@ -154,9 +165,11 @@ tick_number = 0
 
 # Default Ticking Rate (can be set with MQTT)
 bpm = 60  # Default BPM value
-
+sync_to_millisecond = None
+sync_second = None
+sync_tick = True
 async def handle_ticking_bpm():
-    global SECOND_HAND_POS, LAST_UPDATE, MINUTE_HAND_POS, HOUR_HAND_POS, ticked, tick_number, message_trigger, bpm, tick_interval
+    global SECOND_HAND_POS, LAST_UPDATE, MINUTE_HAND_POS, HOUR_HAND_POS, ticked, tick_number, message_trigger, bpm, tick_interval, sync_tick, sync_second
     now = utime.time() 
     sync_to_millisecond = True
     while True:
@@ -165,18 +178,22 @@ async def handle_ticking_bpm():
         # Wait until the next whole second to start ticking
         time_ns = int(utime.time_ns())
         #tick_interval = bpm/60
-        if sync_to_millisecond:
-        
+        if sync_tick:
             while True:
                 time_ns = int(utime.time_ns())
-                if time_ns % 100000 == 0:
+                if sync_second is None:
+                    time_mod = 1000000
+                else:
+                    time_mod = sync_second
+                    sync_second = None
+                if time_ns % time_mod == 0:
                     print(f"The current time is synced to {time_ns}")
-                    sync_to_millisecond = False
+                    sync_tick = False
                     break
                 await uasyncio.sleep_ms(1)
-        
-        if utime.time() % 10 == 0:
-            sync_to_millisecond = True
+
+        #if utime.time() % 60 == 0:
+        #    sync_to_millisecond = True
         ticked = True
         
         await uasyncio.sleep(60/bpm)
@@ -672,7 +689,7 @@ def update_file_from_mqtt_message(msg_string):
 
 ESP_NOW_ENABLED = False
 def sub_cb(topic, msg):
-    global bpm
+    global bpm, sync_second, sync_tick
     msg_string = msg.decode("UTF-8")
     print(f"Received message: '{msg_string}' on topic: '{topic}'")  # Debugging output
     if ESP_NOW_ENABLED:
@@ -717,6 +734,9 @@ def sub_cb(topic, msg):
         #update_file_from_mqtt_message(msg_string)
     elif topic == b'bpm':
         bpm = int(msg_string)
+    elif topic == b'sync_tick':
+        sync_second = int(msg_string)
+        sync_tick = True
 
 async def mqtt_task(client):
     while True:
@@ -805,8 +825,8 @@ async def status_handler(message):
     led_strip.write()
 
     
-def connectMQTT():
-    global mqtt_connected
+async def connectMQTT():
+    global mqtt_connected, client
     client = MQTTClient(
         client_id=MQTT_CLIENT_ID,
         server=MQTT_SERVER,
@@ -822,8 +842,8 @@ def connectMQTT():
         mqtt_connected = True
     except Exception as e:
         print('Error connecting to %s MQTT broker error: %s' % (MQTT_SERVER, e))
-    #  b'time'
-    topics = [b'scores', b'animate', b'audio_reactive', b'chase', b'update', b'mac', b'wifi_data', b'bpm']
+    #  
+    topics = [b'scores', b'animate', b'audio_reactive', b'chase', b'update', b'mac', b'wifi_data', b'bpm', b'time', b'sync_tick']
     if mqtt_connected:
         for topic in topics:
             try:
@@ -921,6 +941,8 @@ async def setup_wireless():
     global wlan
     
     try:
+        await uasyncio.create_task(scroll_text("  WIFI...  ",led_matrix=led_matrix))
+
         if not wifi_connected:
             for i in range(0, 3):
                 await connect_to_wifi()
@@ -958,13 +980,16 @@ async def setup_wireless():
         # if no wifi, then you get...
 
     if wifi_connected:
+        
         set_time()
+        await uasyncio.create_task(scroll_text("  MQTT...  ",led_matrix=led_matrix))
+
         counter = 0
         for i in range(0,5):
             try:
                 await uasyncio.sleep(2)
                 print("Attempting to connect to MQTT broker...")
-                client = connectMQTT()
+                client = await uasyncio.create_task(connectMQTT())
                 if mqtt_connected:
                     for _ in range(2):  # Flash red green times
                         make_leds_color(color_hex="000F0F,0.25")
@@ -1012,24 +1037,23 @@ def start_wifi_card():
         print("Errors initializing WiFi")
 
 
-pin = None
 async def main():
     global wifi_connected, mqtt_connected, pin
     global client, stand_alone, espnow_interface
     
+    make_leds_color(color_hex="442280,0.25")
     
     pin = machine.Pin(15, machine.Pin.OUT)
-    # Run our beginning animation
-    print(f"Turning on the starting animation: {STARTING_ANIMATION}")
-
-    uasyncio.create_task(run_animation(STARTING_ANIMATION))
-    # This is how we run conway's game from async
-    uasyncio.create_task(game_of_life(random_grid=True))
     # Start the Wifi Card
     start_wifi_card()
+    
+    print(f"Turning on the starting animation: {STARTING_ANIMATION}")
+    uasyncio.create_task(run_animation(STARTING_ANIMATION))
+    
+    # Set handle_ticking to stick to a specific BPM
     uasyncio.create_task(handle_ticking_bpm())
     #uasyncio.create_task(handle_ticking())
-    # Enable if you want to scan for wifi
+    # Enable if you want to scan for wifi but it blocks everything
     #uasyncio.create_task(wifi_scan())
             
     # If we're not in standalone mode IE No WiFi mode go ahead and try to connect to a network
@@ -1043,9 +1067,7 @@ async def main():
             else:
                 break      
 
-        if wifi_connected:
-            
-            
+        if wifi_connected: 
             # This is janky, need to make it work better
             #uasyncio.create_task(check_connections())
             
@@ -1067,18 +1089,13 @@ async def main():
                     espnow_interface = espnow_setup()            
                     uasyncio.create_task(espnow_handler("I'm Alive"))
                     uasyncio.create_task(espnow_listener())
-
-                # Make the tick tock come off of the MQTT timing message. Test with the ENTER press script.
                 
                 
-                # Make sure the background message that comes in is able to trigger any number of items
+    # This is how we run conway's game from async
+    if conways_game:
+        uasyncio.create_task(run_game_of_life(led_matrix=led_matrix))
 
     while True:
         await uasyncio.sleep_ms(0)
 
 uasyncio.run(main())
-
-
-
-
-

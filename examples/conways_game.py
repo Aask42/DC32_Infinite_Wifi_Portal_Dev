@@ -78,7 +78,6 @@ def display_new_grid(led_matrix = None):
     led_matrix.set_led_list(led_list_x_y)
     
 async def countdown(count = 5, led_matrix = None):
-    await uasyncio.create_task(scroll_text("  Conway's Game Of Life  ", delay=0.04, led_matrix=led_matrix))
     await uasyncio.sleep(0.25)
     for number in range(count, -1, -1):
         await uasyncio.create_task(display_number(number, led_matrix=led_matrix))
@@ -133,11 +132,14 @@ async def game_of_life(random_grid=False, delay=0.25, led_matrix=None):
         # TODO: Move button logic to main.py
         if button_pin.value() == 0:  # Button pressed (GPIO pulled to ground)
             if random_grid:
+                await uasyncio.create_task(scroll_text("  Glider Start  ", delay=0.05, led_matrix=led_matrix))
                 reset_grid_random()
             else:
+                await uasyncio.create_task(scroll_text("  Random Start  ", delay=0.05, led_matrix=led_matrix))
+
                 reset_grid_glider()
                 random_grid = True
-            await countdown()  # Display countdown after reset
+            await countdown(2, led_matrix=led_matrix)  # Display countdown after reset
             await uasyncio.sleep(0.1)  # Debounce delay
 
         display_new_grid(led_matrix=led_matrix)
@@ -153,8 +155,11 @@ async def game_of_life(random_grid=False, delay=0.25, led_matrix=None):
         await uasyncio.sleep(delay)
 
 # Call the function to start the simulation with a glider
-def run_game_of_life(random_grid = False, led_matrix=set_up_led_matrix()):
+async def run_game_of_life(random_grid = False, led_matrix=None):
 
     # Set up the LED matrix
     # NOTE This will always spawn a glider first unless otherwise specified
+    await uasyncio.create_task(scroll_text("  Conway's Game Of Life  ", delay=0.04, led_matrix=led_matrix))
+
     uasyncio.run(game_of_life(random_grid=random_grid, led_matrix=led_matrix))
+
