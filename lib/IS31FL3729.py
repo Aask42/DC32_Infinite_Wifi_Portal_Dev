@@ -4,7 +4,59 @@ Written for: DC32
 Date started: 20240720
 Copyright: Do what you want because a pirate is free
 
-Description: Basic driver for IS31FL3729 chip
+Description: Basic driver for IS31FL3729 chip. 
+
+Driver for the IS31FL3729 LED driver chip using I2C communication.
+
+    Args:
+        i2c (I2C): The I2C bus instance.
+        address (int): The I2C address of the IS31FL3729 chip (default: 0x34).
+        cs_currents (list of int): List of current settings for the current sources (default: [0x40] * 15).
+        grid_size_mode (list of int): Grid size mode configuration (default: [0x61]).
+
+    Usage:
+        1. Import the necessary modules and create an I2C instance:
+            from machine import I2C, Pin
+            from IS31FL3729 import IS31FL3729
+
+            i2c = I2C(0, scl=Pin(22), sda=Pin(21))  # Adjust the pins according to your setup
+
+        2. Create an instance of the IS31FL3729 class:
+            led_driver = IS31FL3729(i2c)
+
+        3. Initialize and start the display:
+            led_driver.start_display()
+
+        4. Map the LEDs to specific coordinates:
+            led_driver.map_leds(num_leds=45)
+            
+           Follow the on-screen prompts to enter the row and column for each LED.
+           Once mapped you can hard-code the map in your setup as to avoid doing this each time you
+           set it up
+
+        5. Set the brightness of a specific LED by its register:
+            led_driver.set_led(0x01, 128)  # Set LED at register 0x01 to half brightness
+
+        6. Set the brightness of an LED using coordinates:
+            led_driver.set_led_by_coord(0, 1, 255)  # Set LED at row 0, column 1 to full brightness
+
+        7. Set multiple LEDs using a list of coordinates and brightness values:
+            led_list = [(0, 1, 255), (1, 2, 128), (2, 3, 64)]
+            led_driver.set_led_list(led_list)
+
+        8. Clear the LED matrix (turn off all LEDs):
+            led_driver.clear_matrix()
+
+    Methods:
+        i2c_w(reg, data): Write data to a specified register.
+        start_display(): Initialize and start the display after setting things up.
+        set_led_raw(reg, brightness): Set the brightness of an LED using its register.
+        map_leds(num_leds=45): Map LEDs to coordinates by prompting the user.
+        render_led_map(): Render the current LED brightness map to the display.
+        set_led(reg, brightness): Set the brightness of an LED by its register.
+        set_led_by_coord(x, y, brightness): Set the brightness of an LED using coordinates.
+        set_led_list(led_list_x_y): Set the brightness of multiple LEDs using a list of coordinates and brightness values.
+        clear_matrix(): Clear the LED matrix (turn off all LEDs).
 """
 
 import time

@@ -1,3 +1,21 @@
+"""
+Written by: BadAask
+Written for: DC32
+Date started: 20240726
+Copyright: Do what you want because a pirate is free
+
+Description: This function is exactly what it says: Conway's Game. 
+
+    NOTE: This version of Conway's game always starts with a glider,
+    and switches to random on reset
+    Made for any matrix of X by Y, with an LED driver providing 
+    set_led_list(led_list_x_y) and clear_leds as functions
+    additionally if you want the display_number and scroll_text options
+    you will need to update display_number and scroll_text based
+    on the driver of the LED matrix you are utilizing
+"""
+
+
 import machine
 import random
 from matrix_functions.matrix_setup import set_up_led_matrix
@@ -60,7 +78,8 @@ def display_new_grid(led_matrix = None):
     led_matrix.set_led_list(led_list_x_y)
     
 async def countdown(count = 5, led_matrix = None):
-    await uasyncio.create_task(scroll_text("DC32 INFINITE WIFI PORTAL BADGE"))
+    await uasyncio.create_task(scroll_text("  Conway's Game Of Life  ", delay=0.04, led_matrix=led_matrix))
+    await uasyncio.sleep(0.25)
     for number in range(count, -1, -1):
         await uasyncio.create_task(display_number(number, led_matrix=led_matrix))
         await uasyncio.sleep(0.5)  # Add a brief pause between numbers
@@ -101,8 +120,12 @@ async def game_of_life(random_grid=False, delay=0.25, led_matrix=None):
 
     await uasyncio.create_task(countdown(2, led_matrix))  # Display countdown before starting
     if random_grid:
+        await uasyncio.create_task(scroll_text("  Random Start  ", delay=0.05, led_matrix=led_matrix))
+
         reset_grid_random()
     else:
+        await uasyncio.create_task(scroll_text("  Glider Start  ", delay=0.05, led_matrix=led_matrix))
+
         reset_grid_glider()
     
     prev_grids = []
@@ -135,7 +158,3 @@ def run_game_of_life(random_grid = False, led_matrix=set_up_led_matrix()):
     # Set up the LED matrix
     # NOTE This will always spawn a glider first unless otherwise specified
     uasyncio.run(game_of_life(random_grid=random_grid, led_matrix=led_matrix))
-    
-run_game_of_life()
-
-
