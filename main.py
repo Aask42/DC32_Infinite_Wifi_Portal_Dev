@@ -11,6 +11,7 @@ from CONFIG.FTC_TEAM_CONFIG import TEAM_ASSIGNED
 from CONFIG.CLOCK_CONFIG import NTP_SERVER, TIMEZONE_OFFSET, DAYLIGHT_SAVING
 from CONFIG.LED_MANAGER import NUM_LEDS, LED_PIN, BRIGHTNESS, STARTING_ANIMATION
 from CONFIG.OTA_CONFIG import OTA_HOST, PROJECT_NAME, FILENAMES
+from CONFIG.BLE_CONFIG import ble_role
 
 from lib.updates import update_file_replace
 from lib.helper import hsv_to_rgb
@@ -22,21 +23,37 @@ import network
 from umqtt.simple import MQTTClient
 import neopixel
 import machine
-import espnow
+
+from lib.ble_sync import BLESync
 
 from matrix_functions.matrix_functions import display_number, scroll_text
 
 conways_game = True
+matrix = True
+esp_now_support = True
+
+try:
+    import espnow
+    from lib.espnow_sync import ESPNOWSync
+except:
+    esp_now_support = False
+    print("No ESPNow support found :/")
+
 try:
     from examples.conways_game import run_game_of_life
 except:
     conways_game = False
     print("Couldn't find Conway's Game of Life :/")
+try:
+    # Set up our LED matrix
+    from matrix_functions.matrix_setup import set_up_led_matrix
 
-# Set up our LED matrix
-from matrix_functions.matrix_setup import set_up_led_matrix
+    led_matrix = set_up_led_matrix() 
+except:
+    print("Couldn't find LED matrix :/")
 
-led_matrix = set_up_led_matrix()
+    matrix = False
+    
 
 ## Turn on power to the LED strip
 WS_PWR_PIN = 18
@@ -138,25 +155,25 @@ def get_time():
 async def set_time():
     global timezone_offset_sync
     ntptime.host = NTP_SERVER
-    while True:
-        try:
-            cur_time = get_time()
-            print("Local time before synchronization: %s" % str(get_time()))
-            
-            # Make sure to have internet connection
-            ntptime.settime()
-            new_time = get_time()
-            if  new_time[6]-cur_time[6] > 1:
-                #we got ahead, need to go back
-                #adjust things to sync with the offset
-                timezone_offset_sync = cur_time[6]-new_time[6]
-            else:
-                timezone_offset_sync = 0
+    #while True:
+    try:
+        cur_time = get_time()
+        print("Local time before synchronization: %s" % str(get_time()))
+        
+        # Make sure to have internet connection
+        ntptime.settime()
+        new_time = get_time()
+        if  new_time[6]-cur_time[6] > 1:
+            #we got ahead, need to go back
+            #adjust things to sync with the offset
+            timezone_offset_sync = cur_time[6]-new_time[6]
+        else:
+            timezone_offset_sync = 0
 
-            print("Local time after synchronization: %s" % str(get_time()))
-        except Exception as e:
-            print("Error syncing time:", e)
-        await uasyncio.sleep(60)
+        print("Local time after synchronization: %s" % str(get_time()))
+    except Exception as e:
+        print("Error syncing time:", e)
+    #await uasyncio.sleep(60)
 
 # These flags keep track of ticking
 #TODO: Move to a better place
@@ -173,8 +190,8 @@ async def handle_ticking_bpm():
     now = utime.time() 
     sync_to_millisecond = True
     while True:
-        
-        tick_interval = 60/bpm * 1000000000
+        tick_wait = 60/bpm
+        tick_interval = tick_wait * 1000000000
         # Wait until the next whole second to start ticking
         time_ns = int(utime.time_ns())
         #tick_interval = bpm/60
@@ -186,17 +203,17 @@ async def handle_ticking_bpm():
                 else:
                     time_mod = sync_second
                     sync_second = None
-                if time_ns % time_mod == 0:
-                    print(f"The current time is synced to {time_ns}")
+                if time_ns % tick_interval < 100:
+                    print(f"The current BPM is synced to {time_ns}")
                     sync_tick = False
                     break
-                await uasyncio.sleep_ms(1)
+                else:
+                    await uasyncio.sleep_ms(1)
+                    continue
 
-        #if utime.time() % 60 == 0:
-        #    sync_to_millisecond = True
         ticked = True
         
-        await uasyncio.sleep(60/bpm)
+        await uasyncio.sleep(tick_wait)
 
         
 def handle_time_message(msg):
@@ -234,16 +251,6 @@ def handle_time_message(msg):
 
         LAST_UPDATE = utime.time()
         ticked = True
-        #print(f"Handled time message, {tick_number}, {SECOND_HAND_POS}")
-        #print(f"Handled time message, {tick_number}, {SECOND_HAND_POS}")
-
-        #print(f"Buzzing haptics!")
-        
-        #drv2605.set_realtime_input(255)
-        #await uasyncio.sleep(0.01)
-        #drv2605.set_realtime_input(0)
-        #print("Handled time message, MINUTE_HAND_POS:", MINUTE_HAND_POS)
-        #print("Handled time message, HOUR_HAND_POS:", HOUR_HAND_POS)
 
     except Exception as e:
         print("Error in handle_time_message:", str(e))
@@ -410,7 +417,46 @@ def toggle_direction(timer):
 # Setup timer interrupt
 #timer = machine.Timer(-1)
 #timer.init(period=500, mode=machine.Timer.PERIODIC, callback=toggle_direction)
+beat_count = 0
+async def fading_strobe_matrix(max_brightness=100, steps=5, fade_delay = 10):
+    global matrix, beat_count
+    if not matrix:
+        print("No LED Matrix provided")
+        return -1
+    #global tick
+    """
+    Fading strobe function for the LED matrix.
 
+    Args:
+        led_driver (IS31FL3729): The LED driver instance.
+        max_brightness (int): The maximum brightness value to fade up to.
+        steps (int): The number of steps to take for fading.
+
+    Usage:
+        led_driver = IS31FL3729(i2c)
+        fading_strobe(led_driver, 255, 20)
+    """
+    
+    beat_count += 1
+    
+    if beat_count > 10:
+        beat_count = 0
+    print(f"triggering beat on beat count {beat_count}")
+    await uasyncio.create_task(display_number(beat_count, led_matrix=led_matrix, delay = 0.05))
+
+    for i in range(steps):
+        brightness = int(max_brightness * (i / steps))
+        led_matrix.set_led_list([(x, y, brightness) for x in range(led_matrix.rows) for y in range(led_matrix.cols)])
+        await uasyncio.sleep_ms(fade_delay)  # Adjust the delay as needed
+    await uasyncio.sleep_ms(10)  # Adjust the delay as needed
+    for i in range(steps, 0, -1):
+        brightness = int(max_brightness * (i / steps))
+        led_matrix.set_led_list([(x, y, brightness) for x in range(led_matrix.rows) for y in range(led_matrix.cols)])
+        await uasyncio.sleep_ms(fade_delay)  # Adjust the delay as needed
+    led_matrix.set_led_list([(x, y, 0) for x in range(led_matrix.rows) for y in range(led_matrix.cols)])
+
+    await uasyncio.sleep_ms(10)  # Adjust the delay as needed
+        
 SEGMENT_LENGTH = NUM_LEDS//3 #NUM_LEDS // 3
 seg_length = 0
 MAX_COLOR_CYCLE = 360  # Maximum value for the color cycle
@@ -428,7 +474,11 @@ async def chase():
             await uasyncio.sleep(pause_timeout)
             pause_timeout = 0
             pause_animation = False
-
+        # Check for direction change
+        if ticked:
+            uasyncio.create_task(fading_strobe_matrix())
+            direction *= -1
+            ticked = False
         update_strip(position, segment_len, cycle, direction, hue_increment)  # Pass direction to update_strip
 
         # Update the position and cycle
@@ -437,12 +487,9 @@ async def chase():
         if cycle > MAX_COLOR_CYCLE:
             cycle = 1
 
-        # Check for direction change
-        if ticked:
-            direction *= -1
-            ticked = False
+        
 
-        await uasyncio.sleep(.1)  # Non-blocking sleep
+        await uasyncio.sleep_ms(100)  # Non-blocking sleep
     
 # TODO: Move this to be by the other time stuff
 def get_clock_hand_positions():
@@ -583,30 +630,6 @@ async def movie_ticker(timeout_mod = 0):
         await uasyncio.sleep(0.01)
 
 
-async def i_dont_know_why_this_works(color=1):
-    global current_color, loop_count
-    hue_1, hue_2 = (100, 220) if color == "1" else (0, 45) if color == "2" else (150, 180)
-    
-    # Assuming BRIGHTNESS is now a value between 0 and 255
-    brightness_scale = MAX_SOLID_BRIGHTNESS / 255.0  # Convert to 0-1 scale
-
-    while True:
-        for i in range(NUM_LEDS):
-            cycle = hue_1 if i % 2 == 0 else hue_2
-            update_strip(i, 1, cycle / MAX_COLOR_CYCLE)  # Update each LED individually
-        led_strip.write()
-        await uasyncio.sleep(UPDATE_INTERVAL_BLINKIES)
-
-        for i in range(NUM_LEDS):
-            cycle = hue_2 if i % 2 == 0 else hue_1
-            update_strip(i, 1, cycle / MAX_COLOR_CYCLE)  # Update each LED individually
-        led_strip.write()
-        await uasyncio.sleep(UPDATE_INTERVAL_BLINKIES)
-
-    # Transition to the rainbows animation
-    animation_task = uasyncio.create_task(rainbows())
-    await animation_task
-
 async def alternating_blinkies(color="1"):
     if color == "1":
         hue_1, hue_2 = 50, 220
@@ -674,8 +697,6 @@ async def run_animation(animation_name, color=1):
         animation_task = uasyncio.get_event_loop().create_task(rainbows())
     elif animation_name == "chase":
         animation_task = uasyncio.get_event_loop().create_task(chase())
-    elif animation_name == "idk":
-        animation_task = uasyncio.get_event_loop().create_task(i_dont_know_why_this_works())
     elif animation_name == "movie_ticker":
         animation_task = uasyncio.get_event_loop().create_task(movie_ticker())
     await animation_task
@@ -686,10 +707,11 @@ async def run_animation(animation_name, color=1):
 def update_file_from_mqtt_message(msg_string):
     print(f"Starting update process for {msg_string}...")
     update_file_replace(msg_string)
-
+    
+trigger_ble_sync = False
 ESP_NOW_ENABLED = False
 def sub_cb(topic, msg):
-    global bpm, sync_second, sync_tick
+    global bpm, sync_second, sync_tick, trigger_ble_sync
     msg_string = msg.decode("UTF-8")
     print(f"Received message: '{msg_string}' on topic: '{topic}'")  # Debugging output
     if ESP_NOW_ENABLED:
@@ -737,6 +759,8 @@ def sub_cb(topic, msg):
     elif topic == b'sync_tick':
         sync_second = int(msg_string)
         sync_tick = True
+    elif topic == b'trigger_ble_sync':
+        trigger_ble_sync = True
 
 async def mqtt_task(client):
     while True:
@@ -776,11 +800,7 @@ async def connect_to_wifi():
                     while not wlan.isconnected():
                         #await status_handler(f"Waiting to connect to the network: {ssid_to_find}...")
                         connection_attempts += 1
-                        #await uasyncio.sleep(1)
-                        
-                        if connection_attempts > MAX_WIFI_CONNECT_TIMEOUT:
-                            print("Exceeded MAX_WIFI_CONNECT_TIMEOUT!!!")
-                            break
+                        await uasyncio.sleep(1)
                             
                     wifi_connected = True
                     print('WLAN connection succeeded!')
@@ -792,37 +812,6 @@ async def connect_to_wifi():
                
     except Exception as e:
         print(f"Setup failed: {e}")
-
-# Status handler function
-row_one = False
-async def status_handler(message):
-    global wifi_connected, row_one
-    print(message)
-
-    if row_one:
-        print(f"Row one")
-        for i in range(NUM_LEDS//2):
-            led_strip[i] = (0, 0, 0)
-            await uasyncio.sleep(NUM_LEDS // 2 * 0.0005)
-    else:
-        print(f"Row Two!!")
-        for i in range(NUM_LEDS//2, NUM_LEDS):
-            led_strip[i] = (0, 0, 0)
-            await uasyncio.sleep(NUM_LEDS // 2 * 0.0005)
-    
-    led_strip.write()
-    row_one = not row_one
-
-    if row_one:
-        for i in range(NUM_LEDS//2):
-            make_leds_color("008800")
-            await uasyncio.sleep(NUM_LEDS//2 * 0.001)
-    else:
-        for i in range(NUM_LEDS//2, NUM_LEDS):
-            led_strip[i] = (100, 100, 100)
-            await uasyncio.sleep(NUM_LEDS//2 * 0.001)
-
-    led_strip.write()
 
     
 async def connectMQTT():
@@ -843,7 +832,7 @@ async def connectMQTT():
     except Exception as e:
         print('Error connecting to %s MQTT broker error: %s' % (MQTT_SERVER, e))
     #  
-    topics = [b'scores', b'animate', b'audio_reactive', b'chase', b'update', b'mac', b'wifi_data', b'bpm', b'time', b'sync_tick']
+    topics = [b'scores', b'animate', b'audio_reactive', b'chase', b'update', b'mac', b'wifi_data', b'bpm', b'time', b'sync_tick', b'trigger_ble_sync']
     if mqtt_connected:
         for topic in topics:
             try:
@@ -941,7 +930,7 @@ async def setup_wireless():
     global wlan
     
     try:
-        await uasyncio.create_task(scroll_text("  WIFI...  ",led_matrix=led_matrix))
+        await uasyncio.create_task(scroll_text("  WIFI...  ",led_matrix=led_matrix, delay=0.05))
 
         if not wifi_connected:
             for i in range(0, 3):
@@ -951,20 +940,20 @@ async def setup_wireless():
                     print('Wifi connection successful!')
                     wifi_status = "connected"
                     for _ in range(2):  # Flash red green times
-                        make_leds_color(color_hex="000900,0.25")
+                        make_leds_color(color_hex="000900,0.15")
                         utime.sleep(0.5)
-                        make_leds_color(color_hex="000000,0.25")
+                        make_leds_color(color_hex="000000,0.15")
                         utime.sleep(0.5)
-                    make_leds_color(color_hex="09000F,0.25")
+                    #make_leds_color(color_hex="09000F,0.25")
                     break
                 else:
                     print(f'Wifi connection failed!')
                     wifi_status = "failed"
                     for _ in range(2):  # Flash red three times
                         make_leds_color(color_hex="090000,0.25")
-                        utime.sleep(.5)
+                        utime.sleep(.25)
                         make_leds_color(color_hex="000000,0.25")
-                        utime.sleep(0.5)
+                        utime.sleep(0.25)
                     
                 
     except Exception as e:
@@ -981,8 +970,7 @@ async def setup_wireless():
 
     if wifi_connected:
         
-        set_time()
-        await uasyncio.create_task(scroll_text("  MQTT...  ",led_matrix=led_matrix))
+        await uasyncio.create_task(scroll_text("  MQTT...  ",led_matrix=led_matrix, delay=0.05))
 
         counter = 0
         for i in range(0,5):
@@ -992,26 +980,25 @@ async def setup_wireless():
                 client = await uasyncio.create_task(connectMQTT())
                 if mqtt_connected:
                     for _ in range(2):  # Flash red green times
-                        make_leds_color(color_hex="000F0F,0.25")
-                        utime.sleep(0.25)
-                        make_leds_color(color_hex="000000,0.25")
-                        utime.sleep(0.25)
-                        make_leds_color(color_hex="000F0F,0.25")
+                        make_leds_color(color_hex="000F0F,0.15")
+                        utime.sleep(0.15)
+                        make_leds_color(color_hex="000000,0.15")
+                        utime.sleep(0.15)
+                        #make_leds_color(color_hex="000F0F,0.25")
                     mqtt_connected = True
                 else:
                     print(f'MQTT connection failed!')
                     wifi_status = "failed"
                     for _ in range(2):  # Flash red three times
-                        make_leds_color(color_hex="080000,0.25")
-                        utime.sleep(.5)
-                        make_leds_color(color_hex="000000,0.25")
-                        utime.sleep(0.5)
+                        make_leds_color(color_hex="080000,0.15")
+                        utime.sleep(.25)
+                        make_leds_color(color_hex="000000,0.15")
+                        utime.sleep(0.25)
                     mqtt_connected = False
                 #make_leds_color(color_hex="005500,2")
                 return client
 
             except Exception as e:
-                
                 print("Failed to connect to MQTT: %s" % e)
                 #make_leds_color(color_hex="FF0000,2")
 #
@@ -1036,7 +1023,21 @@ def start_wifi_card():
     except:
         print("Errors initializing WiFi")
 
+#BLE Time Sync
+        
+async def ble_time_sync():
+    ble_sync = BLESync(role=ble_role)
+    uasyncio.run(ble_sync.run())
 
+async def espnow_time_sync():
+    # Initialize Wi-Fi in station mode to use ESP-NOW
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+
+    #ESPNOWSync.PRECISION = 100  # Set precision to 10th of a millisecond
+    espnow_sync = ESPNOWSync()
+
+    await espnow_sync.run()
 async def main():
     global wifi_connected, mqtt_connected, pin
     global client, stand_alone, espnow_interface
@@ -1049,9 +1050,7 @@ async def main():
     
     print(f"Turning on the starting animation: {STARTING_ANIMATION}")
     uasyncio.create_task(run_animation(STARTING_ANIMATION))
-    
-    # Set handle_ticking to stick to a specific BPM
-    uasyncio.create_task(handle_ticking_bpm())
+
     #uasyncio.create_task(handle_ticking())
     # Enable if you want to scan for wifi but it blocks everything
     #uasyncio.create_task(wifi_scan())
@@ -1089,13 +1088,22 @@ async def main():
                     espnow_interface = espnow_setup()            
                     uasyncio.create_task(espnow_handler("I'm Alive"))
                     uasyncio.create_task(espnow_listener())
-                
-                
+    #if esp_now_support:
+    #uasyncio.create_task(espnow_time_sync())
+    # Turn on BLE time syncing.
+    #else:
+    uasyncio.create_task(ble_time_sync())
+        
+    # Set handle_ticking to stick to a specific BPM
+    uasyncio.create_task(handle_ticking_bpm())
+    
     # This is how we run conway's game from async
-    if conways_game:
-        uasyncio.create_task(run_game_of_life(led_matrix=led_matrix))
+    #if conways_game:
+    #    uasyncio.create_task(run_game_of_life(led_matrix=led_matrix))
 
     while True:
-        await uasyncio.sleep_ms(0)
+        await uasyncio.sleep_ms(1)
 
 uasyncio.run(main())
+
+

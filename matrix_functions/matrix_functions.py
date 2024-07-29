@@ -61,4 +61,3 @@ async def scroll_text(text="DC32", delay=0.1, led_matrix=None):
                 led_list.append((x, y, brightness))
         led_matrix.set_led_list(led_list)
         await uasyncio.sleep(delay)
-

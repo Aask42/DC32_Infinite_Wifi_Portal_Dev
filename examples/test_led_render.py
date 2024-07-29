@@ -8,6 +8,27 @@ from machine import Pin, I2C
 from lib.IS31FL3729 import IS31FL3729
 
 
+# Todo:
+'''
+
+Write driver for Accelerometer
+
+Write driver for Light sensor
+
+Write library for LED animations
+
+# Write logic for cycling animations using the button
+
+# Write button handler so we can handle single, double, triple, and long presses
+
+# Write logic for alphabet on the matrix
+
+# Write library for syncing the firing LEDs using an MQ and currrent millisecond
+
+# change current sink for green and red 
+
+'''
+
 
 i2c = I2C(0, scl=Pin(22), sda=Pin(21), freq=400000)
 
@@ -71,8 +92,8 @@ def water_wave(brightness=100, delay=0.1):
 # Example animation loop
 while True:
     #led_matrix.water_wave()
-    water_wave(100)
-    #step_through_leds()
+    #water_wave(100)
+    step_through_leds()
 
 
 

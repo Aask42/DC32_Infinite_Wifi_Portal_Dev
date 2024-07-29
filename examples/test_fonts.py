@@ -58,4 +58,3 @@ def test_fonts():
 
 # Run the test program
 test_fonts()
-

@@ -1,15 +1,32 @@
-"""
-Written by: BadAask
-Written for: DC32
-Date started: 20240720
-Copyright: Do what you want because a pirate is free
-
-Description: It's a metroid! This is an example of drawing on the IS31FL3729 in a 7 row 6 column grid
-"""
+# Draw a box on the edge of the display.
+#
 import math
 import time
 from machine import Pin, I2C
 
+
+# Todo:
+'''
+
+Write LED driver for matrixed LEDs
+
+Write driver for Accelerometer
+
+Write driver for Light sensor
+
+Write library for LED animations
+
+# Write logic for cycling animations using the button
+
+# Write button handler so we can handle single, double, triple, and long presses
+
+# Write logic for alphabet on the matrix
+
+# Write library for syncing the firing LEDs using an MQ and currrent millisecond
+
+# change current sink for green and red 
+
+'''
 
 from lib.IS31FL3729 import IS31FL3729
 
@@ -111,6 +128,10 @@ def set_heart_on_led_matrix():
 
     led_matrix.set_led_list(led_list)
 # Example animation loop
+#while True:
+#led_matrix.test_led_matrix()
+#led_matrix.test_render_led_map()
 
+#water_wave(100)
 character_walk()
-
+    #step_through_leds()
