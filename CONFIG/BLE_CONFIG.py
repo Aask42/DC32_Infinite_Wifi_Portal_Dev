@@ -1,1 +1,1 @@
-ble_role="control"
+ble_role="perhiperal"
