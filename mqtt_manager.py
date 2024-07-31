@@ -51,4 +51,3 @@ class MQTTManager:
             except Exception as e:
                 print(f'Error checking messages: {e}')
 
-

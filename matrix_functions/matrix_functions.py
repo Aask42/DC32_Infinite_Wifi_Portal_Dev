@@ -61,3 +61,34 @@ async def scroll_text(text="DC32", delay=0.1, led_matrix=None):
                 led_list.append((x, y, brightness))
         led_matrix.set_led_list(led_list)
         await uasyncio.sleep(delay)
+
+async def fading_strobe_matrix(max_brightness=100, steps=5, fade_delay = 10, led_matrix = None):
+    
+    if not led_matrix:
+        print("No LED Matrix provided")
+        return -1
+    #global tick
+    """
+    Fading strobe function for the LED matrix.
+
+    Args:
+        led_driver (IS31FL3729): The LED driver instance.
+        max_brightness (int): The maximum brightness value to fade up to.
+        steps (int): The number of steps to take for fading.
+
+    Usage:
+        led_driver = IS31FL3729(i2c)
+        fading_strobe(led_driver, 255, 20)
+    """
+    for i in range(steps):
+        brightness = int(max_brightness * (i / steps))
+        led_matrix.set_led_list([(x, y, brightness) for x in range(led_matrix.rows) for y in range(led_matrix.cols)])
+        await uasyncio.sleep_ms(fade_delay)  # Adjust the delay as needed
+    await uasyncio.sleep_ms(10)  # Adjust the delay as needed
+    for i in range(steps, 0, -1):
+        brightness = int(max_brightness * (i / steps))
+        led_matrix.set_led_list([(x, y, brightness) for x in range(led_matrix.rows) for y in range(led_matrix.cols)])
+        await uasyncio.sleep_ms(fade_delay)  # Adjust the delay as needed
+    led_matrix.set_led_list([(x, y, 0) for x in range(led_matrix.rows) for y in range(led_matrix.cols)])
+
+    await uasyncio.sleep_ms(10)  # Adjust the delay as needed

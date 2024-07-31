@@ -6,109 +6,75 @@ import struct
 
 class BLESync:
     SYNC_INTERVAL_MS = 10000  # Interval to send sync pulses in milliseconds
-    RESYNC_THRESHOLD_MS = 150  # Resync if more than 150ms off
-    PRECISION = 1000  # 10th of a millisecond
-    CLIENT_TIMEOUT_MS = 20000  # Timeout for clients after hearing a sync from control
-    SCAN_INTERVAL_MS = 30000  # Interval to restart scanning in milliseconds
+    RESYNC_THRESHOLD_MS = 50  # Resync if more than 50ms off
 
-    def __init__(self, role='client'):
-        self.role = role
+    def __init__(self):
         self.ble = ubluetooth.BLE()
         self.ble.active(True)
         self.ble.irq(self.ble_irq)
         self.sync_event = asyncio.Event()
-        self.synced_time = None
         self.sync_timer = Timer(-1)
+        self.ble_tick_number = 0
         self.rtc = RTC()
-        self.scanning = False
-        self.last_sync_from_control = 0
+        self.bpm = 0
+        self.frame_count = 0
+        self.start_scanning()
+        self.ble_role = "perhiperal"
+
+    def start_scanning(self):
+        print("Starting scan...")
+        self.ble.gap_scan(0)  # 0 means no timeout, scans indefinitely
 
     def ble_irq(self, event, data):
+        #print(f"IRQ Event: {event}, Data: {data}")
         if event == 1:  # Central connected
             print("Central connected")
         elif event == 2:  # Central disconnected
             print("Central disconnected")
         elif event == 5:  # Scan result
             addr_type, addr, adv_type, rssi, adv_data = data
-            adv_data_bytes = bytes(adv_data)  # Convert memoryview to bytes
-            #print(f"Advertisement received: {adv_data_bytes}")  # Debugging line
-            if adv_data_bytes.startswith(b'sync_pulse') and len(adv_data_bytes) >= 22:
-                try:
-                    print("Sync pulse detected")
-                    received_time_str = adv_data_bytes[12:25].decode()
-                    milliseconds = struct.unpack('>H', adv_data_bytes[22:24])[0]
-                    print(f"Received time string: {received_time_str}")
-                    current_time_ms = time.ticks_ms() + time.ticks_us() % 1000 / 1000
-                    self.set_system_clock(received_time_str, milliseconds)
-                    if adv_data_bytes[10:12] == b'CT':  # Check if it's from a Control device
-                        print("Sync pulse from Control detected")
-                        self.last_sync_from_control = time.ticks_ms()
-                        self.stop_scan()  # Stop scanning once a sync pulse is received
-                except Exception as e:
-                    print(f"Error unpacking sync pulse: {e}")
-
-    def start_scan(self):
-        if not self.scanning:
-            print("Starting BLE scan")
-            self.ble.gap_scan(0, 30000, 30000)  # Set scan window and interval to max to continuously scan
-            self.scanning = True
-
-    def stop_scan(self):
-        if self.scanning:
-            print("Stopping BLE scan")
-            self.ble.gap_scan(None)  # Stop scanning
-            self.scanning = False
+            adv_data = bytes(adv_data)  # Convert memoryview to bytes
+            #print(f"Advertisement Data: {adv_data}")
+            if adv_data and adv_data.startswith(b'sync_pulse'):
+                print("Sync pulse received")
+                received_time = struct.unpack('>Q', adv_data[10:18])[0]  # Unpack Unix time in milliseconds
+                current_time = time.ticks_ms()
+                time_diff = abs(time.ticks_diff(current_time, received_time))
+                print(f"Time difference: {time_diff} ms")
+                if time_diff > self.RESYNC_THRESHOLD_MS:
+                    self.synced_time = received_time
+                    self.sync_event.set()
 
     def send_sync_pulse(self):
-        current_time = time.localtime()
-        current_time_str = f"{current_time[0]:04}{current_time[1]:02}{current_time[2]:02}{current_time[3]:02}{current_time[4]:02}{current_time[5]:02}"
-        current_time_ms = int(time.time() * 1000 % 1000)
-        role_bytes = b'CT' if self.role == 'control' else b'CL'
-        sync_pulse = b'sync_pulse' + role_bytes + current_time_str.encode() + struct.pack('>H', current_time_ms)
-        self.ble.gap_advertise(100, sync_pulse, connectable=False)
-        print(f"Sent sync pulse: {current_time_str}.{current_time_ms:03d}")
+        current_time = int(time.time() * 1000)  # Current Unix time in milliseconds
+        sync_pulse = b'sync_pulse' + struct.pack('>Q', current_time) + struct.pack('>Q', self.frame_count)
+        self.ble.gap_advertise(100, sync_pulse)
+        print(f"Sent sync pulse: {current_time} frame_count: {self.frame_count}")
 
     async def sync_clock(self):
         while True:
             await self.sync_event.wait()
             self.sync_event.clear()
-            print("Clock synchronized")
+            if self.ble_role == "perhiperal":
+                print("Clock synchronized at Unix time (ms):", self.synced_time)
+                self.set_system_clock(self.synced_time)
 
-    def set_system_clock(self, time_str, milliseconds):
-        try:
-            year = int(time_str[0:4])
-            month = int(time_str[4:6])
-            day = int(time_str[6:8])
-            hour = int(time_str[8:10])
-            minute = int(time_str[10:12])
-            second = int(time_str[12:14])
-            #milliseconds = int(time_str[14:16])
-            print(f"The new time is: {year}{month}{day} {hour}:{minute}:{second}:{milliseconds}")
-        except Exception as e:
-            print(f"Go FUCK YOURSELF: {e}")
-        self.rtc.datetime((year, month, day, hour, minute, second, milliseconds * 1000, 0))
+    def set_system_clock(self, unix_time_ms):
+        unix_time_s = unix_time_ms // 1000
+        tm = time.localtime(unix_time_s)
+        milliseconds = unix_time_ms % 1000
+        self.rtc.datetime((tm[0], tm[1], tm[2], tm[6], tm[3], tm[4], tm[5], milliseconds * 1000))
         print("System clock set to:", self.rtc.datetime())
 
     async def periodic_sync(self):
         while True:
-            if self.role == 'control' or (self.role == 'client' and (time.ticks_diff(time.ticks_ms(), self.last_sync_from_control) > self.CLIENT_TIMEOUT_MS)):
-                self.send_sync_pulse()
+            self.send_sync_pulse()
             await asyncio.sleep_ms(self.SYNC_INTERVAL_MS)
-            
-    async def periodic_scan(self):
-        while True:
-            self.start_scan()
-            await asyncio.sleep(self.SCAN_INTERVAL_MS / 1000)  # Restart scan at the designated interval
-            self.stop_scan()
 
     async def run(self):
-        if self.role == 'client':
-            asyncio.create_task(self.periodic_scan())
-        
         asyncio.create_task(self.periodic_sync())
         await self.sync_clock()
 
-# Example usage:
-# Create a BLESync instance with role 'control' or 'client'
-# ble_sync = BLESync(role='control')
-# asyncio.run(ble_sync.run())
+# Start the BLESync
+#ble_sync = BLESync()#
+#asyncio.run(ble_sync.run())

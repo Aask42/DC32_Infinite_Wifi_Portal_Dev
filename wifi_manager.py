@@ -73,4 +73,3 @@ class WiFiConnection:
 #if __name__ == "__main__":
 #    wifi_connection = WiFiConnection()
 #    uasyncio.run(wifi_connection.main())
-
