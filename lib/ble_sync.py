@@ -19,14 +19,13 @@ class BLESync:
         self.bpm = 0
         self.frame_count = 0
         self.start_scanning()
-        self.ble_role = "perhiperal"
+        self.ble_role = "peripheral"
 
     def start_scanning(self):
         print("Starting scan...")
         self.ble.gap_scan(0)  # 0 means no timeout, scans indefinitely
 
     def ble_irq(self, event, data):
-        #print(f"IRQ Event: {event}, Data: {data}")
         if event == 1:  # Central connected
             print("Central connected")
         elif event == 2:  # Central disconnected
@@ -34,16 +33,22 @@ class BLESync:
         elif event == 5:  # Scan result
             addr_type, addr, adv_type, rssi, adv_data = data
             adv_data = bytes(adv_data)  # Convert memoryview to bytes
-            #print(f"Advertisement Data: {adv_data}")
             if adv_data and adv_data.startswith(b'sync_pulse'):
-                print("Sync pulse received")
-                received_time = struct.unpack('>Q', adv_data[10:18])[0]  # Unpack Unix time in milliseconds
-                current_time = time.ticks_ms()
-                time_diff = abs(time.ticks_diff(current_time, received_time))
-                print(f"Time difference: {time_diff} ms")
-                if time_diff > self.RESYNC_THRESHOLD_MS:
-                    self.synced_time = received_time
-                    self.sync_event.set()
+                try:
+                    header_len = len(b'sync_pulse')
+                    received_time = struct.unpack('>Q', adv_data[header_len:header_len + 8])[0]
+                    received_frame = struct.unpack('>Q', adv_data[header_len + 8:header_len + 16])[0]
+                    frame_difference = received_frame - self.frame_count
+                    current_time = time.ticks_ms()
+                    time_diff = abs(time.ticks_diff(current_time, received_time))
+                    print(f"Time difference: {time_diff} ms, frame difference: {frame_difference}")
+                    if time_diff > self.RESYNC_THRESHOLD_MS:
+                        self.synced_time = received_time
+                        self.sync_event.set()
+                    if self.ble_role == "perhiperal":
+                        self.frame_count = received_frame
+                except Exception as e:
+                    print(f"Error unpacking data: {e}")
 
     def send_sync_pulse(self):
         current_time = int(time.time() * 1000)  # Current Unix time in milliseconds
@@ -55,7 +60,7 @@ class BLESync:
         while True:
             await self.sync_event.wait()
             self.sync_event.clear()
-            if self.ble_role == "perhiperal":
+            if self.ble_role == "peripheral":
                 print("Clock synchronized at Unix time (ms):", self.synced_time)
                 self.set_system_clock(self.synced_time)
 
@@ -76,5 +81,6 @@ class BLESync:
         await self.sync_clock()
 
 # Start the BLESync
-#ble_sync = BLESync()#
-#asyncio.run(ble_sync.run())
+# ble_sync = BLESync()
+# asyncio.run(ble_sync.run())
+

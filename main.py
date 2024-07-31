@@ -50,42 +50,46 @@ async def set_time():
 async def ble_time_sync():
     global ble_sync
     ble_sync = BLESync()
+    ble_sync.ble_role = ble_role
     await uasyncio.create_task(ble_sync.run())
 
 def sub_cb(topic, msg):
-    global bpm, direction_timer
+    global bpm, direction_timer, ble_sync
     msg_string = msg.decode("UTF-8")
     print(f"Received message: {msg} on topic: {topic.decode()}")
     if topic == b'bpm':
-        while int(utime.time_ns()) % (led_controller.frame_count * 1000000) > 10000:
+        while ble_sync.frame_count - led_controller.frame_count > 2:
             continue
         bpm = int(int(msg_string) * 1.02)
         direction_timer.init(period=int(60000 / bpm), mode=Timer.PERIODIC, callback=change_direction)
- 
+
 def update_strip(t):
     led_controller.update_strip(t)
 
 def change_direction(t):
     global led_matrix
-    if ble_sync.frame_count < led_controller.frame_count:
-        ble_sync.frame_count = led_controller.frame_count
-    else:
-        print(f"Fast forwarding to frame {led_controller.frame_count}")
-        led_controller.frame_count = ble_sync.frame_count
+    
     uasyncio.create_task(fading_strobe_matrix(led_matrix=led_matrix, max_brightness = matrix_max_brightness))
     led_controller.update_direction()
-
+ 
 # Function to read ambient light and adjust brightness
 async def adjust_brightness():
     global matrix_max_brightness
     while True:
+        
+        # adjust frame too
+        if ble_sync.frame_count < led_controller.frame_count:
+            ble_sync.frame_count = led_controller.frame_count
+        else:
+            print(f"Fast forwarding to frame {ble_sync.frame_count}")
+            led_controller.frame_count = ble_sync.frame_count
         lux = light_sensor.getdata()
         matrix_max_brightness = min(max(int(lux / 10), 1), 255)  # Map lux to brightness (0-255)
         matrix_max_brightness = min(max(int(lux / 10), 40), matrix_max_brightness)
         brightness = min(max(int(lux / 10), 40), 255)  # Map lux to brightness (0-255)
         led_controller.set_brightness(brightness)  # Adjust NeoPixel brightness
         # Adjust matrix brightness here if needed
-        await uasyncio.sleep(1)  # Adjust every second
+        await uasyncio.sleep_ms(100)  # Adjust every second
 
 frame_timer = Timer(1)
 frame_timer.init(period=100, mode=Timer.PERIODIC, callback=update_strip)
@@ -121,3 +125,4 @@ async def main():
         await uasyncio.sleep_ms(1)
 
 uasyncio.run(main())
+

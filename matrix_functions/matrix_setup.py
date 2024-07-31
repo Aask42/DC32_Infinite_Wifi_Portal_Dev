@@ -6,9 +6,9 @@ from lib.IS31FL3729 import IS31FL3729
 from machine import Pin, I2C
 import time
 
-def set_up_led_matrix():
+def set_up_led_matrix(i2c=None):
     # Initialize I2C and the LED matrix for our badge
-    i2c = I2C(0, scl=Pin(22), sda=Pin(21), freq=400000)
+    #i2c = I2C(0, scl=Pin(22), sda=Pin(21), freq=400000)
     
     # Create the display object with correct cs_currents
     led_matrix = IS31FL3729(i2c)
