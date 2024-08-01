@@ -82,6 +82,7 @@ class BLESync:
 
     async def periodic_sync(self):
         while True:
+           
             self.send_sync_pulse()
             await asyncio.sleep_ms(self.sync_interval_ms)
 
