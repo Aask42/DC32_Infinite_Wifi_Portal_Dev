@@ -4,7 +4,7 @@ import uasyncio
 from led_controller import LEDController
 from mqtt_manager import MQTTManager
 from wifi_manager import WiFiConnection
-from lib.ble_sync import BLESync
+from lib.ble_sync import BLESync  # Make sure the path is correct
 from matrix_functions.matrix_setup import set_up_led_matrix
 from matrix_functions.matrix_functions import fading_strobe_matrix
 from CONFIG.LED_MANAGER import NUM_LEDS, LED_PIN, BRIGHTNESS, HUE_INCREMENT, MAX_COLOR_CYCLE, WS_PWR_PIN
@@ -26,8 +26,9 @@ light_sensor = LTR_308ALS(i2c, gain=1)
 led_controller = LEDController(NUM_LEDS, LED_PIN, BRIGHTNESS, HUE_INCREMENT, MAX_COLOR_CYCLE)
 ble_sync = None
 
-matrix_max_brightness = 100
+matrix_brightness = 100
 
+frame_number = 0
 def get_time():
     return utime.localtime()
 
@@ -54,11 +55,11 @@ async def ble_time_sync():
     await uasyncio.create_task(ble_sync.run())
 
 def sub_cb(topic, msg):
-    global bpm, direction_timer, ble_sync
+    global direction_timer, ble_sync, frame_number
     msg_string = msg.decode("UTF-8")
-    print(f"Received message: {msg} on topic: {topic.decode()}")
+    print(f"Received message: {msg} on topic: {topic.decode()} at current frame: {frame_number}")
     if topic == b'bpm':
-        while ble_sync.frame_count - led_controller.frame_count > 2:
+        while utime.time() % 10 !=0:
             continue
         bpm = int(int(msg_string) * 1.02)
         direction_timer.init(period=int(60000 / bpm), mode=Timer.PERIODIC, callback=change_direction)
@@ -67,26 +68,23 @@ def update_strip(t):
     led_controller.update_strip(t)
 
 def change_direction(t):
-    global led_matrix
-    
-    uasyncio.create_task(fading_strobe_matrix(led_matrix=led_matrix, max_brightness = matrix_max_brightness))
+    global led_matrix, matrix_brightness
+    # Also pulse the back matrix
+    uasyncio.create_task(fading_strobe_matrix(led_matrix=led_matrix, max_brightness=100))
     led_controller.update_direction()
- 
+
 # Function to read ambient light and adjust brightness
 async def adjust_brightness():
-    global matrix_max_brightness
+    global matrix_brightness, ble_sync, frame_number
     while True:
-        
-        # adjust frame too
-        if ble_sync.frame_count < led_controller.frame_count:
-            ble_sync.frame_count = led_controller.frame_count
-        else:
-            print(f"Fast forwarding to frame {ble_sync.frame_count}")
+        if ble_sync and ble_role == "peripheral":
             led_controller.frame_count = ble_sync.frame_count
+        elif ble_sync:
+            ble_sync.frame_count = led_controller.frame_count  # Update BLE frame count
+        frame_number = led_controller.frame_count
         lux = light_sensor.getdata()
-        matrix_max_brightness = min(max(int(lux / 10), 1), 255)  # Map lux to brightness (0-255)
-        matrix_max_brightness = min(max(int(lux / 10), 40), matrix_max_brightness)
-        brightness = min(max(int(lux / 10), 40), 255)  # Map lux to brightness (0-255)
+        matrix_brightness = min(max(int(lux / 10), 20), BRIGHTNESS)
+        brightness = min(max(int(lux / 10), 40), BRIGHTNESS)  # Map lux to brightness (0-255)
         led_controller.set_brightness(brightness)  # Adjust NeoPixel brightness
         # Adjust matrix brightness here if needed
         await uasyncio.sleep_ms(100)  # Adjust every second
@@ -96,13 +94,16 @@ frame_timer.init(period=100, mode=Timer.PERIODIC, callback=update_strip)
 
 async def main():
     global led_matrix, direction_timer
-    led_matrix = set_up_led_matrix(i2c = i2c)
+    led_matrix = set_up_led_matrix(i2c=i2c)
     uasyncio.create_task(ble_time_sync())
     uasyncio.create_task(adjust_brightness())  # Start the brightness adjustment task
 
     wifi_connection = WiFiConnection()
     uasyncio.create_task(wifi_connection.main())
     mqtt_manager = None
+    
+    mqtt_tries = 0
+    mqtt_max_tries = 3
     while True:
         if wifi_connection.wifi_connected:
             uasyncio.create_task(set_time())
@@ -115,9 +116,10 @@ async def main():
                 if mqtt_manager.mqtt_connected:
                     mqtt_manager.subscribe(b'bpm')
                     uasyncio.create_task(mqtt_manager.check_messages())
+                    break
             else:
                 break
-        direction_timer = Timer(-1)
+        direction_timer = Timer(2)
         bpm = int(128 * 1.02)
         direction_timer.init(period=int(60000 / bpm), mode=Timer.PERIODIC, callback=change_direction)
         await uasyncio.sleep_ms(1)
