@@ -17,7 +17,7 @@ LIS2DW12_OUT_Z_L = const(0x2C)
 LIS2DW12_SCALE = ('2g', '4g', '8g', '16g')
 
 class LIS2DW12():
-    def __init__(self, i2c, addr = 0x32):
+    def __init__(self, i2c, addr = 0x19):
         self.i2c = i2c
         self.addr = addr
         self.tb = bytearray(1)

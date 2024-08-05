@@ -1,5 +1,6 @@
 from umqtt.simple import MQTTClient
-import uasyncio
+import uasyncio as asyncio
+from CONFIG.MQTT_CONFIG import MQTT_USERNAME, MQTT_PASSWORD, MQTT_CLIENT_ID, MQTT_SERVER
 
 class MQTTManager:
     def __init__(self, server, client_id, username=None, password=None):
@@ -18,16 +19,17 @@ class MQTTManager:
     def set_callback(self, callback):
         self.client.set_callback(callback)
 
-    def connect(self):
+    async def connect(self):
         try:
+            print("Attempting to connect to the mqtt broker")
             self.client.connect()
             self.mqtt_connected = True
             print(f'Connected to {self.server} MQTT broker')
         except Exception as e:
             print(f'Error connecting to {self.server} MQTT broker: {e}')
             self.mqtt_connected = False
-
-    def subscribe(self, topic):
+    
+    async def subscribe(self, topic):
         if self.mqtt_connected:
             try:
                 self.client.subscribe(topic)
@@ -35,7 +37,7 @@ class MQTTManager:
             except Exception as e:
                 print(f'Error subscribing to {topic} topic: {e}')
 
-    def publish(self, topic, message):
+    async def publish(self, topic, message):
         if self.mqtt_connected:
             try:
                 self.client.publish(topic, message)
@@ -45,9 +47,16 @@ class MQTTManager:
 
     async def check_messages(self):
         while True:
-            try:
-                self.client.check_msg()
-                await uasyncio.sleep(0.5)
-            except Exception as e:
-                print(f'Error checking messages: {e}')
+            if self.mqtt_connected:
+                try:
+                    self.client.check_msg()
+                except Exception as e:
+                    print(f'Error checking messages: {e}')
+                    self.mqtt_connected = False
+                    await self.connect()
+            await asyncio.sleep(0.5)
+
+    async def main(self):
+        await self.connect()
+        asyncio.create_task(self.check_messages())
 

@@ -8,6 +8,7 @@ Description: WiFi Connection Library for DC32 Infinite Wifi Portal
 from CONFIG.WIFI_CONFIG import WIFI_LIST, MAX_WIFI_CONNECT_TIMEOUT
 import network
 import uasyncio
+import gc
 
 class WiFiConnection:
     def __init__(self):
@@ -24,6 +25,7 @@ class WiFiConnection:
 
         try:
             nets = self.wlan.scan()
+            print(nets)
             for net in nets:
                 for network_config in WIFI_LIST:
                     ssid_to_find = network_config[0]
@@ -33,7 +35,7 @@ class WiFiConnection:
                             self.wlan.connect(ssid_to_find)
                         else:
                             self.wlan.connect(ssid_to_find, network_config[1])
-                        
+                      
                         while not self.wlan.isconnected():
                             connection_attempts += 1
                             await uasyncio.sleep(1)
@@ -41,9 +43,10 @@ class WiFiConnection:
                                 print("Exceeded MAX_WIFI_CONNECT_TIMEOUT!")
                                 break
                         
-                        self.wifi_connected = True
-                        print('WLAN connection succeeded!')
-                        break
+                        if self.wlan.isconnected():
+                            self.wifi_connected = True
+                            print('WLAN connection succeeded!')
+                            break
                 if self.wifi_connected:
                     break
         except Exception as e:
@@ -61,15 +64,16 @@ class WiFiConnection:
         while True:
             if not self.wlan.isconnected():
                 print('WiFi disconnected, attempting to reconnect...')
-                await self.setup_wireless()
-            await uasyncio.sleep(2)
+                self.wlan.active(False)  # Deactivate the WiFi interface
+                await uasyncio.sleep(1)  # Wait a bit before reinitializing
+                self.start_wifi_card()  # Reactivate the WiFi interface
+                await uasyncio.sleep(1)  # Wait a bit before reinitializing
+
+                await self.connect_to_wifi()  # Attempt to reconnect
+                gc.collect()
+            await uasyncio.sleep(10)
 
     async def main(self):
         await self.setup_wireless()
         uasyncio.create_task(self.check_connections())
-        while True:
-            await uasyncio.sleep(1)
-
-#if __name__ == "__main__":
-#    wifi_connection = WiFiConnection()
-#    uasyncio.run(wifi_connection.main())
+       

@@ -57,26 +57,26 @@ Driver for the IS31FL3729 LED driver chip using I2C communication.
         set_led_by_coord(x, y, brightness): Set the brightness of an LED using coordinates.
         set_led_list(led_list_x_y): Set the brightness of multiple LEDs using a list of coordinates and brightness values.
         clear_matrix(): Clear the LED matrix (turn off all LEDs).
+        set_max_brightness(max_brightness): Set the maximum brightness for all LEDs.
 """
 
 import time
 
 class IS31FL3729:
     
-    def __init__(self, i2c, address=0x34, cs_currents = [0x40] * 15, grid_size_mode=[0x61]):
+    def __init__(self, i2c, address=0x34, cs_currents=[0x40] * 15, grid_size_mode=[0x61]):
         self.i2c = i2c
         self.address = address
         
-        #self.init_display(cs_currents)
         self.led_matrix_map = {}
         self.led_brightness_map = {}
         
         self.cs_currents = cs_currents
         self.grid_size_mode = grid_size_mode
+        self.max_brightness = 255  # Default maximum brightness
         
         # Initialize the grid dimensions
         self.rows, self.cols = 0, 0
-
 
     def i2c_w(self, reg, data):
         buf = bytearray(1)
@@ -98,8 +98,7 @@ class IS31FL3729:
     def set_led_raw(self, reg, brightness):
         self.i2c_w(reg, [brightness])
 
-    def map_leds(self, num_leds = 45):
-        # TODO: Dynamically figure out how many LEDs there are based on the self.grid_size_mode
+    def map_leds(self, num_leds=45):
         leds = [0x00]
         
         for led in num_leds:
@@ -119,41 +118,36 @@ class IS31FL3729:
 
     def render_led_map(self):
         led_brightness_list = []
-        for i,item in enumerate(self.led_brightness_map):
-            brightness_value = self.led_brightness_map[item]
+        for i, item in enumerate(self.led_brightness_map):
+            brightness_value = min(self.led_brightness_map[item], self.max_brightness)
             led_brightness_list.append(brightness_value)
         length_of_list = len(led_brightness_list)
         self.i2c_w(0x00, led_brightness_list)
 
-    
-    def set_led(self,reg,brightness):
-        self.led_brightness_map[reg] = brightness 
+    def set_led(self, reg, brightness):
+        self.led_brightness_map[reg] = min(brightness, self.max_brightness)
         self.render_led_map()
     
-    def set_led_by_coord(self,x,y,brightness):
-        reg = hex(self.led_matrix_map[(x,y)])
-        
-        self.led_brightness_map[reg] = brightness 
+    def set_led_by_coord(self, x, y, brightness):
+        reg = hex(self.led_matrix_map[(x, y)])
+        self.led_brightness_map[reg] = min(brightness, self.max_brightness)
         self.render_led_map()
         
-    def set_led_list(self,led_list_x_y):
-        # led_list_x_y must be a list of all the LEDs you wish to update
-        # it should include the x,y coords of the LED you want to update and its brightness
-        # like (1,2,100), (1,4,100), etc...
-        for x,y,brightness in led_list_x_y:
-            reg = self.led_matrix_map[(x,y)]
-            #if brightness > 0:
-            #    print(f"turning on {reg}: x,y: {x},{y}")
-            self.led_brightness_map[reg] = brightness
+    def set_led_list(self, led_list_x_y):
+        for x, y, brightness in led_list_x_y:
+            reg = self.led_matrix_map[(x, y)]
+            self.led_brightness_map[reg] = min(brightness, self.max_brightness)
         self.render_led_map()
         
-            
     def clear_matrix(self):
         for led in self.led_brightness_map:
-            # skip red and green
             if led == 16 or led == 32:
-                #print("Skipping red or green LED")
                 continue
             self.led_brightness_map[led] = 0
         self.render_led_map()
- 
+
+    def set_brightness(self, max_brightness):
+        """Set the maximum brightness for all LEDs."""
+        self.max_brightness = max_brightness
+        self.render_led_map()
+
