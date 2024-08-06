@@ -15,6 +15,7 @@ class MQTTManager:
             password=self.password
         )
         self.mqtt_connected = False
+        self.subscriptions = []  # List to keep track of subscriptions
 
     def set_callback(self, callback):
         self.client.set_callback(callback)
@@ -25,11 +26,16 @@ class MQTTManager:
             self.client.connect()
             self.mqtt_connected = True
             print(f'Connected to {self.server} MQTT broker')
+            # Resubscribe to all topics
+            for topic in self.subscriptions:
+                await self.subscribe(topic)
         except Exception as e:
             print(f'Error connecting to {self.server} MQTT broker: {e}')
             self.mqtt_connected = False
     
     async def subscribe(self, topic):
+        if topic not in self.subscriptions:
+            self.subscriptions.append(topic)
         if self.mqtt_connected:
             try:
                 self.client.subscribe(topic)
@@ -41,7 +47,7 @@ class MQTTManager:
         if self.mqtt_connected:
             try:
                 self.client.publish(topic, message)
-                print(f'Published message to {topic} topic: {message}')
+                print(f'Published message to {topic} topic: {message}') 
             except Exception as e:
                 print(f'Error publishing to {topic} topic: {e}')
 
@@ -53,8 +59,14 @@ class MQTTManager:
                 except Exception as e:
                     print(f'Error checking messages: {e}')
                     self.mqtt_connected = False
-                    await self.connect()
             await asyncio.sleep(0.5)
+
+    async def reconnect_if_disconnected(self, wifi_connection):
+        while True:
+            if wifi_connection.wifi_connected and not self.mqtt_connected:
+                print("WiFi reconnected, attempting to reconnect to MQTT broker")
+                await self.connect()
+            await asyncio.sleep(1)
 
     async def main(self, wifi_connection):
         # Ensure WiFi is connected before attempting MQTT connection
@@ -63,3 +75,5 @@ class MQTTManager:
             await asyncio.sleep(1)
         await self.connect()
         asyncio.create_task(self.check_messages())
+        asyncio.create_task(self.reconnect_if_disconnected(wifi_connection))
+

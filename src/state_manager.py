@@ -9,6 +9,17 @@ class StateManager:
         self.x_motion = False
         self.y_motion = False
         self.z_motion = False
+        self.fading_up = False
+        self.fading_down = False
+        self.brightness_step = 50  # Default starting brightness
+        self.brightness_target = 100  # Default target brightness
+        self.matrix_brightness = 100
+    
+    def set_brightness_led_matrix(self, matrix_brightness = 100):
+        self.matrix_brightness = matrix_brightness
+    
+    def get_brightness_led_matrix(self):
+        return self.matrix_brightness
 
     def add_frame(self, frame, delay):
         frame_hash = self._hash_frame(frame)
@@ -61,4 +72,5 @@ class StateManager:
                 brightness = 255 if (frame_int & (1 << bit_index)) else 0
                 frame.append((x, y, brightness))
         return frame
+
 

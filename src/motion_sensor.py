@@ -41,8 +41,8 @@ class MotionSensor:
         self.y = y
         self.z = z
 
-        #self.x_motion = self.detect_jerk(self.x_history, 'X')
-        #self.y_motion = self.detect_jerk(self.y_history, 'Y')
+        self.x_motion = self.detect_jerk(self.x_history, 'X')
+        self.y_motion = self.detect_jerk(self.y_history, 'Y')
         self.z_motion = self.detect_jerk(self.z_history, 'Z')
 
     def detect_jerk(self, history, axis):
@@ -56,18 +56,18 @@ class MotionSensor:
         previous_jerk = self.previous_jerk_x if axis == 'X' else (self.previous_jerk_y if axis == 'Y' else self.previous_jerk_z)
         #print(f"[{axis}] Current value: {history[-1]}, Jerk: {jerk}")
 
-#         if abs(jerk) > self.motion_threshold and previous_jerk * jerk < 0 and (current_time - self.last_hit_time > self.debounce_time):
-#             print(f"[{axis}] Current value: {history[-1]}, Jerk: {jerk}")
-#             self.last_hit_time = current_time
-#             if axis == 'X':
-#                 self.previous_jerk_x = jerk
-#             elif axis == 'Y':
-#                 self.previous_jerk_y = jerk
-#             elif axis == 'Z':
-#                 self.previous_jerk_z = jerk
-#             return True
+        #if abs(jerk) > self.motion_threshold and previous_jerk * jerk < 0 and (current_time - self.last_hit_time > self.debounce_time):
+        #   print(f"[{axis}] Current value: {history[-1]}, Jerk: {jerk}")
+        #    self.last_hit_time = current_time
+        if axis == 'X':
+            self.previous_jerk_x = jerk
+        elif axis == 'Y':
+            self.previous_jerk_y = jerk
+        elif axis == 'Z':
+            self.previous_jerk_z = jerk
+        return True
         
-        return False
+        #return False
 
     def calculate_jerk(self, history):
         # Calculate the velocity change (derivative of acceleration)
