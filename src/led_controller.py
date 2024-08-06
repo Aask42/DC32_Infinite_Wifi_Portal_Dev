@@ -32,25 +32,22 @@ class LEDController:
         self.position = (self.position + self.direction) % self.num_pixels
 
     def generate_frame(self):
-        frame = [(0, 0, 0)] * self.num_pixels
+        self.np.fill((0, 0, 0))  # Clear all pixels
         base_hue = (self.cycle / self.max_color_cycle) % 1
-        for offset in range(self.num_pixels):
+        for offset in range(self.num_pixels/2):
             current_hue = (base_hue + offset * self.hue_increment) % 1
             color = hsv_to_rgb(current_hue, 1, self.brightness / 255 * self.max_brightness / 255)  # Adjust brightness scale
             idx = (self.position + offset) % self.num_pixels
-            frame[idx] = color
-        return frame
-    
-    def display_frame(self, frame):
-        self.np.fill((0, 0, 0))
-        for idx, color in enumerate(frame):
-            self.np[idx] = color
+            self.np[idx] = color  # Directly set the color in the NeoPixel buffer
+        return self.np
+
+    def display_frame(self):
         self.np.write()
         self.frame_count += 1
 
     def update_strip(self, t):
-        frame = self.generate_frame()
-        self.display_frame(frame)
+        self.generate_frame()
+        self.display_frame()
         self.update_position()
         self.cycle = (self.cycle + self.direction) % self.max_color_cycle
         if self.cycle < 0:
@@ -76,7 +73,6 @@ class LEDController:
             # Clamp the brightness to ensure it doesn't exceed bounds due to floating point precision issues
             self.brightness = max(0, min(self.brightness, self.max_brightness))
         self.update_strip(None)  # Update the LED strip with the new brightness
-
 
 # Example usage
 # controller = LEDController(num_pixels=30, pin_num=2, brightness=50, hue_increment=0.02, max_color_cycle=100)

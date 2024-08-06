@@ -56,7 +56,10 @@ class MQTTManager:
                     await self.connect()
             await asyncio.sleep(0.5)
 
-    async def main(self):
+    async def main(self, wifi_connection):
+        # Ensure WiFi is connected before attempting MQTT connection
+        while not wifi_connection.wifi_connected:
+            print("Waiting for WiFi connection...")
+            await asyncio.sleep(1)
         await self.connect()
         asyncio.create_task(self.check_messages())
-

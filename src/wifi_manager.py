@@ -7,7 +7,7 @@ Description: WiFi Connection Library for DC32 Infinite Wifi Portal
 
 from CONFIG.WIFI_CONFIG import WIFI_LIST, MAX_WIFI_CONNECT_TIMEOUT
 import network
-import uasyncio
+import uasyncio as asyncio
 import gc
 
 class WiFiConnection:
@@ -38,7 +38,7 @@ class WiFiConnection:
                       
                         while not self.wlan.isconnected():
                             connection_attempts += 1
-                            await uasyncio.sleep(1)
+                            await asyncio.sleep(1)
                             if connection_attempts > MAX_WIFI_CONNECT_TIMEOUT:
                                 print("Exceeded MAX_WIFI_CONNECT_TIMEOUT!")
                                 break
@@ -65,15 +65,14 @@ class WiFiConnection:
             if not self.wlan.isconnected():
                 print('WiFi disconnected, attempting to reconnect...')
                 self.wlan.active(False)  # Deactivate the WiFi interface
-                await uasyncio.sleep(1)  # Wait a bit before reinitializing
+                await asyncio.sleep(1)  # Wait a bit before reinitializing
                 self.start_wifi_card()  # Reactivate the WiFi interface
-                await uasyncio.sleep(1)  # Wait a bit before reinitializing
+                await asyncio.sleep(1)  # Wait a bit before reinitializing
 
                 await self.connect_to_wifi()  # Attempt to reconnect
                 gc.collect()
-            await uasyncio.sleep(10)
+            await asyncio.sleep(10)
 
     async def main(self):
         await self.setup_wireless()
-        uasyncio.create_task(self.check_connections())
-       
+        asyncio.create_task(self.check_connections())

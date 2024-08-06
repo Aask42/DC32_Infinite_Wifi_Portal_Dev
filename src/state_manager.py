@@ -1,26 +1,35 @@
+import uhashlib
+import gc
+
 class StateManager:
     def __init__(self):
-        self.frames = []
         self.current_frame_index = 0
+        self.frame_index_to_hash = []
+        self.frame_hash_table = {}
         self.x_motion = False
         self.y_motion = False
         self.z_motion = False
 
-    def add_frames(self, frames):
-        self.frames.extend(frames)
+    def add_frame(self, frame, delay):
+        frame_hash = self._hash_frame(frame)
+        if frame_hash not in self.frame_hash_table:
+            self.frame_hash_table[frame_hash] = frame
+        self.frame_index_to_hash.append((frame_hash, delay))
+        gc.collect()
 
     def get_current_frame(self):
-        if self.frames:
-            if self.current_frame_index >= len(self.frames):
+        if self.frame_index_to_hash:
+            if self.current_frame_index >= len(self.frame_index_to_hash):
                 self.current_frame_index = 0
-            frame, _ = self.frames[self.current_frame_index]
-            self.current_frame_index = (self.current_frame_index + 1) % len(self.frames)
-            return frame
-        return None
+            frame_hash, delay = self.frame_index_to_hash[self.current_frame_index]
+            frame = self.frame_hash_table[frame_hash]
+            self.current_frame_index = (self.current_frame_index + 1) % len(self.frame_index_to_hash)
+            return frame, delay
+        return None, 0
 
     def set_current_frame(self, frame_num):
-        if self.frames:
-            self.current_frame_index = frame_num % len(self.frames)
+        if self.frame_index_to_hash:
+            self.current_frame_index = frame_num % len(self.frame_index_to_hash)
         else:
             self.current_frame_index = 0
 
@@ -39,3 +48,17 @@ class StateManager:
         if self.z_motion:
             print("Z motion detected")
             self.z_motion = False
+
+    def _hash_frame(self, frame):
+        frame_bytes = frame.to_bytes(8, 'big')  # Ensure frame is treated as an integer
+        return uhashlib.sha256(frame_bytes).digest()[:8]  # 64-bit hash
+
+    def _convert_64bit_to_frame(self, frame_int):
+        frame = []
+        for x in range(7):
+            for y in range(6):
+                bit_index = x * 6 + y
+                brightness = 255 if (frame_int & (1 << bit_index)) else 0
+                frame.append((x, y, brightness))
+        return frame
+

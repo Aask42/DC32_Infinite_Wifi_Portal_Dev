@@ -1,9 +1,10 @@
 from lib.IS31FL3729 import IS31FL3729
 from machine import Pin, I2C
-import time
 import uasyncio as asyncio
+import framebuf
 import math
 from src.matrix_functions.infinity_mirror_font import number_patterns, char_patterns, char_patterns_lower, punctuation_patterns
+import gc
 
 class MatrixManager:
     def __init__(self, state_manager, i2c=None):
@@ -24,6 +25,7 @@ class MatrixManager:
 
     def refresh(self):
         self.led_matrix.render_led_map()
+        gc.collect()
 
     def _create_led_matrix_map(self):
         self.led_matrix.led_matrix_map = {
@@ -46,27 +48,6 @@ class MatrixManager:
                 self.led_matrix.led_brightness_map[address] = brightness
         self.refresh()
 
-    def test_led_matrix(self):
-        for item in self.led_matrix.led_matrix_map:
-            reg = self.led_matrix.led_matrix_map[item]
-            reg_hex = hex(self.led_matrix.led_matrix_map[item])
-            print(f"register: {reg_hex} == {reg}, coord: {item}")
-            self.led_matrix.set_led_raw(reg, 255)
-            time.sleep(1)
-            input("Is this correct? If not you should fix it...")
-            self.led_matrix.set_led_raw(reg, 0)
-
-    def test_render_led_map(self):
-        for x in range(7):
-            for y in range(6):
-                print(f"Testing coord: {x},{y}")
-                address = self.led_matrix.led_matrix_map[(x, y)]
-                self.led_matrix.led_brightness_map[address] = 255
-                self.refresh()
-                input(f"Is this correct? {address} is what we are turning on. If not you should fix it...")
-                self.led_matrix.led_brightness_map[address] = 0
-                self.refresh()
-
     async def display_number(self, number, fade_time=0.5, steps=5):
         if number not in number_patterns:
             print(f"Pattern for number {number} not found.")
@@ -75,12 +56,10 @@ class MatrixManager:
         pattern = number_patterns[number]
         for step in range(steps + 1):
             brightness = int((math.sin(math.pi * step / steps) ** 2) * 100)
-            led_list_x_y = []
-            for x in range(self.led_matrix.rows):
-                for y in range(self.led_matrix.cols):
-                    led_list_x_y.append((x, y, brightness if pattern[x][y] == 1 else 0))
-            self.led_matrix.set_led_list(led_list_x_y)
+            buffer = self._create_buffer_from_pattern(pattern, brightness)
+            self.led_matrix.set_led_list(buffer)
             await asyncio.sleep(fade_time / steps)
+        gc.collect()
 
     def get_char_pattern(self, char):
         if char.isdigit():
@@ -93,62 +72,127 @@ class MatrixManager:
             return char_patterns_lower.get(char, [[0]*6]*7)
 
     def scroll_text_frames(self, text="DC32", delay=0.1):
-        frames = []
-
-        self.led_matrix.clear_matrix()
+        """Generate frames to scroll the text across the display.
         
-        # Remove unnecessary leading spaces to prevent buffer overflow
+        Args:
+            text (str): The text to scroll.
+            delay (float): Delay between frames in seconds.
+
+        Yields:
+            Tuple[int, float]: Frame buffer as integer and delay.
+        """
         text = text.lstrip()
-        
-        # Calculate the necessary buffer size based on text length and matrix dimensions
-        buffer_width = max(6 * len(text), self.led_matrix.cols)
-        buffer = [[0] * buffer_width for _ in range(self.led_matrix.rows)]
+        buffer_width = 7 * len(text)  # Each character is 6 pixels wide + 1 blank column
+        buffer = framebuf.FrameBuffer(bytearray(buffer_width * self.led_matrix.rows), buffer_width, self.led_matrix.rows, framebuf.MONO_HLSB)
 
-        # Populate the buffer with character patterns
+        # Draw characters onto the buffer
         for i, char in enumerate(text):
             pattern = self.get_char_pattern(char)
             for x in range(self.led_matrix.rows):
                 for y in range(6):
-                    if i * 6 + y < buffer_width:  # Ensure we do not overflow the buffer
-                        buffer[x][i * 6 + y] = pattern[x][y]
+                    buffer.pixel(i * 7 + y, x, pattern[x][y])
 
-        # Create frames for scrolling text
-        for offset in range(buffer_width - self.led_matrix.cols + 1):
-            led_list = []
+            # Add blank column after each character
             for x in range(self.led_matrix.rows):
-                for y in range(self.led_matrix.cols):
-                    brightness = 255 if buffer[x][y + offset] == 1 else 0
-                    led_list.append((x, y, brightness))
-            frames.append((led_list, delay))
-        
-        return frames
+                buffer.pixel(i * 7 + 6, x, 0)
+
+        # Scroll text off the display
+        total_frames = buffer_width + self.led_matrix.cols  # Scroll completely off the display
+        for offset in range(total_frames):
+            frame_int = self._create_buffer_from_framebuffer(buffer, offset)
+            yield frame_int, delay
 
     async def scroll_text(self, text="DC32", delay=0.1):
-        frames = self.scroll_text_frames(text, delay)
-        self.state_manager.add_frames(frames)
-        for frame, frame_delay in frames:
-            self.led_matrix.set_led_list(frame)
+        frame_generator = self.scroll_text_frames(text, delay)
+        for frame, frame_delay in frame_generator:
+            led_list = self._convert_64bit_to_frame(frame)
+            self.led_matrix.set_led_list(led_list)
             await asyncio.sleep(frame_delay)
+        gc.collect()
+
+    def generate_sine_wave(self, frames, frequency=1, amplitude=3):
+        wave = []
+
+        for frame in range(frames):
+            matrix = [[0] * 7 for _ in range(6)]  # Initialize a 6x7 matrix
+
+            for x in range(6):
+                y = int(amplitude * math.sin(2 * math.pi * frequency * (frame + x) / frames) + amplitude)
+                if y < 7:
+                    matrix[x][y] = 1  # Assign the sine wave value
+
+            # Rotate the matrix 90 degrees clockwise
+            rotated_matrix = [[0] * 6 for _ in range(7)]
+            for x in range(6):
+                for y in range(7):
+                    rotated_matrix[y][5 - x] = matrix[x][y]
+
+            frame_int = self._convert_frame_to_64bit(self._create_buffer_from_pattern(rotated_matrix, 255))
+            wave.append((frame_int, 0.05))
+
+        return wave
 
     def fading_strobe_matrix_frames(self, max_brightness=100, steps=5, fade_delay=10):
-        frames = []
         for i in range(steps):
             brightness = int(max_brightness * (i / steps))
-            frame = [(x, y, brightness) for x in range(self.led_matrix.rows) for y in range(self.led_matrix.cols)]
-            frames.append((frame, fade_delay))
-        max_brightness_frame = [(x, y, max_brightness) for x in range(self.led_matrix.rows) for y in range(self.led_matrix.cols)]
-        frames.append((max_brightness_frame, 10))
+            frame_int = self._create_buffer_from_brightness(brightness)
+            yield frame_int, fade_delay
+        max_brightness_frame = self._create_buffer_from_brightness(max_brightness)
+        yield max_brightness_frame, 10
         for i in range(steps, 0, -1):
             brightness = int(max_brightness * (i / steps))
-            frame = [(x, y, brightness) for x in range(self.led_matrix.rows) for y in range(self.led_matrix.cols)]
-            frames.append((frame, fade_delay))
-        frame = [(x, y, 0) for x in range(self.led_matrix.rows) for y in range(self.led_matrix.cols)]
-        frames.append((frame, 10))
-        return frames
+            frame_int = self._create_buffer_from_brightness(brightness)
+            yield frame_int, fade_delay
+        frame_int = self._create_buffer_from_brightness(0)
+        yield frame_int, 10
 
     async def fading_strobe_matrix(self, max_brightness=100, steps=5, fade_delay=10):
-        frames = self.fading_strobe_matrix_frames(max_brightness, steps, fade_delay)
-        self.state_manager.add_frames(frames)
-        for frame, frame_delay in frames:
-            self.led_matrix.set_led_list(frame)
+        frame_generator = self.fading_strobe_matrix_frames(max_brightness, steps, fade_delay)
+        for frame, frame_delay in frame_generator:
+            led_list = self._convert_64bit_to_frame(frame)
+            self.led_matrix.set_led_list(led_list)
             await asyncio.sleep_ms(frame_delay)
+        gc.collect()
+
+    def _convert_frame_to_64bit(self, frame):
+        frame_int = 0
+        for x, y, brightness in frame:
+            bit_index = x * self.led_matrix.cols + y
+            frame_int |= (brightness > 0) << bit_index
+        return frame_int
+
+    def _convert_64bit_to_frame(self, frame_int):
+        frame = []
+        for x in range(self.led_matrix.rows):
+            for y in range(self.led_matrix.cols):
+                bit_index = x * self.led_matrix.cols + y
+                brightness = 255 if (frame_int & (1 << bit_index)) else 0
+                frame.append((x, y, brightness))
+        return frame
+
+    def _create_buffer_from_pattern(self, pattern, brightness):
+        buffer = []
+        for x in range(self.led_matrix.rows):
+            for y in range(self.led_matrix.cols):
+                if pattern[x][y] == 1:
+                    buffer.append((x, y, brightness))
+                else:
+                    buffer.append((x, y, 0))
+        return buffer
+
+    def _create_buffer_from_framebuffer(self, buffer, offset):
+        frame_int = 0
+        for x in range(self.led_matrix.rows):
+            for y in range(self.led_matrix.cols):
+                bit_index = x * self.led_matrix.cols + y
+                brightness = 255 if buffer.pixel(y + offset, x) == 1 else 0
+                frame_int |= (brightness > 0) << bit_index
+        return frame_int
+
+    def _create_buffer_from_brightness(self, brightness):
+        frame_int = 0
+        for x in range(self.led_matrix.rows):
+            for y in range(self.led_matrix.cols):
+                bit_index = x * self.led_matrix.cols + y
+                frame_int |= (brightness > 0) << bit_index
+        return frame_int
