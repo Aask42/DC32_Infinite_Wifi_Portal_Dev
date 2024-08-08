@@ -1,4 +1,4 @@
-from umqtt.simple import MQTTClient
+from custom_mqtt import MQTTClient
 import uasyncio as asyncio
 from CONFIG.MQTT_CONFIG import MQTT_USERNAME, MQTT_PASSWORD, MQTT_CLIENT_ID, MQTT_SERVER
 
@@ -8,11 +8,25 @@ class MQTTManager:
         self.client_id = client_id
         self.username = username
         self.password = password
+        self.ssl_params = dict()
+        with open('CONFIG/mirror.key','rb') as f:
+            key_data = f.read()
+        with open('CONFIG/mirror.crt','rb') as f:
+            cert_data = f.read()
+        with open('CONFIG/ca-cert.crt','rb') as f:
+            ca_data = f.read()
+        self.ssl_params["cert"] = cert_data
+        self.ssl_params["key"] = key_data
+        self.ssl_params["cadata"] = ca_data
+        self.ssl_params["server_hostname"] = server
         self.client = MQTTClient(
             client_id=self.client_id,
             server=self.server,
-            user=self.username,
-            password=self.password
+            ssl_params = self.ssl_params,
+            ssl=True,
+            port=8883
+            #user=self.username,
+            #password=self.password
         )
         self.mqtt_connected = False
         self.subscriptions = []  # List to keep track of subscriptions
