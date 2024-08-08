@@ -25,6 +25,11 @@ class LEDController:
         self.brightness_step = 0
         self.target_brightness = brightness
 
+    def get_brightness(self):
+        return self.max_brightness
+    def set_brightness(self, max_brightness=100):
+        self.max_brightness = max_brightness
+    
     def update_direction(self):
         self.direction *= -1  # Change direction properly
 

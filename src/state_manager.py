@@ -14,12 +14,19 @@ class StateManager:
         self.brightness_step = 50  # Default starting brightness
         self.brightness_target = 100  # Default target brightness
         self.matrix_brightness = 100
+        self.lux_modifier = 1.0  # Default lux modifier
     
-    def set_brightness_led_matrix(self, matrix_brightness = 100):
+    def set_brightness_led_matrix(self, matrix_brightness=100):
         self.matrix_brightness = matrix_brightness
     
     def get_brightness_led_matrix(self):
         return self.matrix_brightness
+
+    def set_lux_modifier(self, lux_value):
+        self.lux_modifier = max(0.0, min(1.0, lux_value / 1000.0))  # Normalize lux value to a range [0, 1]
+
+    def get_lux_modifier(self):
+        return self.lux_modifier
 
     def add_frame(self, frame, delay):
         frame_hash = self._hash_frame(frame)
@@ -72,5 +79,3 @@ class StateManager:
                 brightness = 255 if (frame_int & (1 << bit_index)) else 0
                 frame.append((x, y, brightness))
         return frame
-
-

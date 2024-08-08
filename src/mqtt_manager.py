@@ -76,4 +76,3 @@ class MQTTManager:
         await self.connect()
         asyncio.create_task(self.check_messages())
         asyncio.create_task(self.reconnect_if_disconnected(wifi_connection))
-

@@ -7,4 +7,4 @@ class LightSensorManager:
 
     def read_sensor(self):
         self.lux = self.sensor.getdata()
-        print(f"Current lux: {self.lux}")
+        #print(f"Current lux: {self.lux}")
