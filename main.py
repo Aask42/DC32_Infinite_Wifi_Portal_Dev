@@ -152,7 +152,7 @@ async def main():
     led_matrix = matrix_manager.led_matrix
 
     # Initialize timers and other components
-    frame_generator = matrix_manager.scroll_text_frames("_DC32-2024_", delay=0.05)
+    frame_generator = matrix_manager.scroll_text_frames("_DC32-2024_I've_been_trying_to_reach_you_about_your_cons_extended_warranty_", delay=0.05)
     for frame, delay in frame_generator:
         state_manager.add_frame(frame, delay)
 
@@ -183,3 +183,5 @@ async def main():
         gc.collect()
 
 asyncio.run(main())
+
+
