@@ -67,7 +67,7 @@ async def fade_brightness(led_controller, state_manager, target_brightness, dura
         await asyncio.sleep(step_duration)
 
 async def handle_upsidedown(motion_sensor_manager, led_controller, state_manager):
-    await fade_brightness(led_controller, state_manager, 1, 2)  # 2 seconds to transition to full brightness
+    await fade_brightness(led_controller, state_manager, 100, 2)  # 2 seconds to transition to full brightness
     await asyncio.sleep(10)  # Wait for 10 seconds while upside down
     if motion_sensor_manager.upsidedown:
         print("Upside down for more than 10 seconds. Turning off LEDs.")
@@ -124,17 +124,22 @@ async def schedule_update(msg_string):
     updater = OTAUpdater(f"{msg_string}")
     await updater.update_file_replace()
 
-async def read_light_sensor(light_sensor_manager, state_manager):
-    """Coroutine to read light sensor periodically."""
-    while True:
-        lux = light_sensor_manager.read_sensor()  # Measure lux
-        if lux is not None:  # Ensure valid lux reading
-            state_manager.set_lux_modifier(lux)
-        await asyncio.sleep(1)  # Adjust the delay as needed
+def light_sensor_timer_callback(t, light_sensor_manager, state_manager):
+    """Callback function to adjust brightness based on light sensor readings."""
+    lux = light_sensor_manager.read_sensor()  # Measure lux
+    if lux is not None:  # Ensure valid lux reading
+        state_manager.set_lux_modifier(lux)
 
 async def main():
     gc.enable()
+    
     led_controller = LEDController(NUM_LEDS, LED_PIN, 50, 20.0/360.0, MAX_COLOR_CYCLE)
+    led_strip_timer = Timer(1)
+    led_strip_timer.init(freq=15, mode=Timer.PERIODIC, callback=lambda t: update_strip(t, led_controller))
+
+    direction_timer = Timer(3)
+    bpm = 30
+    direction_timer.init(period=int(60000 / bpm), mode=Timer.PERIODIC, callback=lambda t: trigger_on_beat(t, led_controller))
 
     i2c = I2C(0, scl=Pin(22), sda=Pin(21), freq=400000)
     state_manager = StateManager()
@@ -151,16 +156,11 @@ async def main():
     for frame, delay in frame_generator:
         state_manager.add_frame(frame, delay)
 
-    frame_timer = Timer(1)
-    frame_timer.init(freq=15, mode=Timer.PERIODIC, callback=lambda t: update_strip(t, led_controller))
-
+    
     display_timer = Timer(2)
     display_timer.init(freq=15, mode=Timer.PERIODIC, callback=lambda t: update_display(t, led_matrix, state_manager))
 
-    direction_timer = Timer(3)
-    bpm = 60
-    direction_timer.init(period=int(60000 / bpm), mode=Timer.PERIODIC, callback=lambda t: trigger_on_beat(t, led_controller))
-
+   
     # Initialize WiFi and MQTT managers
     wifi_manager = WiFiConnection()
     await wifi_manager.main()
@@ -174,12 +174,12 @@ async def main():
     await mqtt_manager.subscribe(b'update')
     
     # Initialize Light Sensor Manager
-    light_sensor_manager = LightSensorManager(i2c)
-    asyncio.create_task(read_light_sensor(light_sensor_manager, state_manager))
+    #light_sensor_manager = LightSensorManager(i2c)
+    #light_sensor_timer = Timer(56)
+    #light_sensor_timer.init(freq=1, mode=Timer.PERIODIC, callback=lambda t: light_sensor_timer_callback(t, light_sensor_manager, state_manager))
 
     while True:
         await asyncio.sleep(1)
         gc.collect()
 
 asyncio.run(main())
-
