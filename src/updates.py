@@ -29,45 +29,48 @@ class OTAUpdater:
             updated = False
             print(f"Updating file {filename}")
             
-            for i, item in enumerate(FILENAMES):
-                print(f"Seeing if {filename} is in {item}")
+            for item in FILENAMES:
+                print(f"Checking if {filename} is in {item}")
 
                 if filename in item:
                     file_to_write = item
                     print(f"Found filename! Simple name: {filename} Fully Qualified: {item}")
-                    
-                    # Clean up and create tmp directory
-                    try:
-                        uos.mkdir('tmp')
-                    except:
-                        pass
 
-                    updated = False
-                    file_to_write = FILENAMES[i]
+                    # Define the temporary file name in the same directory
+                    tmp_filename = f'{file_to_write}.tmp'
                     
+                    # Fetch the new content
                     response_text = await self._http_get(f'{OTA_HOST}/ota_updates/{MQTT_CLIENT_ID}/{filename}')
-
                     print(f"Response text received: {response_text}")
 
-                    print(f"Going to try to write to tmp/{filename}")
-
-                    with open(f'tmp/{filename}', 'w') as source_file:
-                        source_file.write(response_text)
-
-                    # Overwrite our onboard file               
-                    with open(f'tmp/{filename}', 'r') as source_file, open(file_to_write, 'w') as target_file:
-                        target_file.write(source_file.read())
-
-                    uos.remove(f'tmp/{filename}')
-                    
+                    # Write the new content to a temporary file
                     try:
-                        uos.rmdir('tmp')
-                    except:
-                        pass
+                        with open(tmp_filename, 'w') as source_file:
+                            source_file.write(response_text)
+                        print(f"Content written to {tmp_filename}")
+                    except Exception as e:
+                        print(f"Exception writing to temp file: {e}")
+                        continue
+
+                    # Remove the original file if it exists
+                    try:
+                        if filename in uos.listdir('/CONFIG'):
+                            uos.remove(file_to_write)
+                            print(f"Removed old file: {file_to_write}")
+                    except Exception as e:
+                        print(f"Exception removing old file: {e}")
+
+                    # Rename the temporary file to the original file name
+                    try:
+                        uos.rename(tmp_filename, file_to_write)
+                        print(f"Renamed {tmp_filename} to {file_to_write}")
+                    except Exception as e:
+                        print(f"Exception renaming temp file: {e}")
+
                     break
 
         except Exception as e:
-            print(f"Exception updating file! {e}")
+            print(f"Exception during update process: {e}")
 
     async def _http_get(self, url: str) -> str:
         """
@@ -84,3 +87,8 @@ class OTAUpdater:
         except Exception as e:
             print(f"Exception during HTTP GET: {e}")
             return ""
+
+# Example usage:
+# updater = OTAUpdater("MQTT_CONFIG.py")
+# asyncio.run(updater.update_file_replace())
+

@@ -82,3 +82,4 @@ class LEDController:
 # Example usage
 # controller = LEDController(num_pixels=30, pin_num=2, brightness=50, hue_increment=0.02, max_color_cycle=100)
 # controller.smooth_brightness_transition(target_brightness=100, duration_ms=75)
+

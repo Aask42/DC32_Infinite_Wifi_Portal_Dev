@@ -162,7 +162,7 @@ async def main():
     direction_timer.init(period=int(60000 / bpm), mode=Timer.PERIODIC, callback=lambda t: trigger_on_beat(t, led_controller))
 
     # Initialize WiFi and MQTT managers
-    wifi_manager = WiFiConnection()
+        
     await wifi_manager.main()
 
     mqtt_manager = MQTTManager(MQTT_SERVER, MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)
@@ -182,3 +182,4 @@ async def main():
         gc.collect()
 
 asyncio.run(main())
+
