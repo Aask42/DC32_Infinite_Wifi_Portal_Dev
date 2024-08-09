@@ -14,6 +14,12 @@ class WiFiConnection:
     def __init__(self):
         self.wifi_connected = False
         self.wlan = network.WLAN(network.STA_IF)
+        if getattr(self.wlan, 'scan_non_blocking', None):
+            print("Using the custom scanning method")
+            self.custom_scan = True
+        else:
+            print("Not using the custom scanning method")
+            self.custom_scan = False
 
     def start_wifi_card(self):
         self.wlan.active(True)
@@ -24,7 +30,16 @@ class WiFiConnection:
         connection_attempts = 0
 
         try:
-            nets = self.wlan.scan()
+            if self.custom_scan:
+                self.wlan.scan_non_blocking(blocking=False)
+                #await uasyncio.sleep_ms(10)
+                while self.wlan.in_progress():
+                    await uasyncio.sleep_ms(200)
+                    continue
+                nets = self.wlan.results()
+            else:
+                nets = self.wlan.scan()
+
             print(nets)
             for net in nets:
                 for network_config in WIFI_LIST:
