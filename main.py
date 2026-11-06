@@ -4,6 +4,7 @@ import time
 import uasyncio as asyncio
 from src.ble_sync import BLESync
 from src.wifi_manager import WiFiConnection
+from src.time_sync import TimeSync, FrameClock
 from src.mqtt_manager import MQTTManager
 from CONFIG.MQTT_CONFIG import MQTT_USERNAME, MQTT_PASSWORD, MQTT_CLIENT_ID, MQTT_SERVER
 from src.matrix_functions.matrix_manager import MatrixManager
@@ -23,8 +24,22 @@ p_ws_leds.value(1)
 # Initialize deep sleep timer
 deep_sleep_timer = Timer(12)
 
+# Shared-time animation sync (set up in main() once WiFi is up). When
+# frame_clock is not None, update_display derives the current frame from
+# absolute NTP time, so every badge shows the same frame at the same
+# moment and sync drift can never accumulate. Stays None (free-running
+# playback, the old behavior) when NTP is unreachable.
+frame_clock = None
+
+# True = synced playback runs forwards then backwards (ping-pong), e.g.
+# for pre-calculated Conway frames. Flip it in main() or over MQTT.
+frame_pingpong = False
+
 def update_display(t, led_matrix, state_manager):
-    frame, delay = state_manager.get_current_frame()
+    if frame_clock is not None:
+        frame, delay = state_manager.get_synced_frame(frame_clock, pingpong=frame_pingpong)
+    else:
+        frame, delay = state_manager.get_current_frame()
     
     if frame:
         led_list = state_manager._convert_64bit_to_frame(frame)
@@ -109,11 +124,17 @@ def sub_cb(topic, msg, direction_timer, display_timer, state_manager, led_contro
         state_manager.current_frame_index = 0
         led_controller.cycle = 0
         bpm = int(int(msg_string) * 1.00)
+        if frame_clock is not None:
+            # Keep the shared clock on the same tempo: all badges retime
+            # from absolute time instead of each resetting a local counter
+            # whenever the message happens to land.
+            frame_clock.set_bpm(bpm)
         direction_timer.init(period=int(60000 / bpm), mode=Timer.PERIODIC, callback=lambda t: trigger_on_beat(t, led_controller))
         display_timer.init(freq=int(bpm/4), mode=Timer.PERIODIC, callback=lambda t: update_display(t, led_matrix, state_manager))
     if topic == b'banner':
         frame_generator = matrix_manager.scroll_text_frames(f"{msg_string}", delay=0.05)
         state_manager.frame_index_to_hash = []
+        state_manager.frame_hash_table = {}  # was never cleared: old frames leaked on every banner change
         for frame, delay in frame_generator:
             state_manager.add_frame(frame, delay)
     if topic == b'update':
@@ -156,6 +177,15 @@ async def main():
     for frame, delay in frame_generator:
         state_manager.add_frame(frame, delay)
 
+    # To run pre-calculated Conway's Game of Life instead, swap the two
+    # lines above for:
+    #     for frame, delay in generate_conway_frames(7, 6, max_frames=60):
+    #         state_manager.add_frame(frame, delay)
+    # ...and set the module-level frame_pingpong = True to play the
+    # sequence forwards then backwards. The frames are bit-packed (see
+    # examples/conways_game.py), and with the FrameClock active every
+    # badge shows the same frame -- and turns around -- at the same time.
+
     
     display_timer = Timer(2)
     display_timer.init(freq=15, mode=Timer.PERIODIC, callback=lambda t: update_display(t, led_matrix, state_manager))
@@ -164,6 +194,18 @@ async def main():
     # Initialize WiFi and MQTT managers
     wifi_manager = WiFiConnection()
     await wifi_manager.main()
+
+    # Sync the clock to NTP now that WiFi is up, so this badge computes
+    # the same animation frame as every other synced badge. Failure is
+    # fine: frame_clock stays None and playback free-runs as before.
+    global frame_clock, frame_pingpong
+    time_sync = TimeSync()
+    if wifi_manager.wifi_connected:
+        time_sync.sync()
+    if time_sync.synced:
+        frame_clock = FrameClock(time_sync, frame_ms=1000)
+    else:
+        print("Time sync unavailable; animations will free-run")
 
     mqtt_manager = MQTTManager(MQTT_SERVER, MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)
     await mqtt_manager.main(wifi_manager)  # Ensure the MQTT waits for WiFi connection
@@ -180,6 +222,7 @@ async def main():
 
     while True:
         await asyncio.sleep(1)
+        time_sync.maybe_resync()
         gc.collect()
 
 asyncio.run(main())
